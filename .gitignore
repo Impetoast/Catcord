@@ -1,0 +1,18 @@
+# Virtuelle Umgebung
+venv/
+
+# Geheimnisse
+.env
+
+# Bytecode / Cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Logs
+*.log
+
+# Sonstiges
+.DS_Store
+Thumbs.db

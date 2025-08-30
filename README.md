@@ -1,177 +1,221 @@
 # 🤖 Thiscord – Discord Translation & Utility Bot
 
-Thiscord ist ein modular aufgebauter Discord-Bot mit Fokus auf **Übersetzung** (DeepL), **Channel-Spiegelung** und nützliche **Utility-Funktionen**.  
-Er ist vollständig in **Python** mit [discord.py](https://github.com/Rapptz/discord.py) implementiert und nutzt **Cogs** für eine klare Struktur.
+Thiscord is a modular Discord bot focused on **translation** (DeepL or OpenAI), **channel relaying**, and useful **utility functions**.  
+It is written in **Python** using [discord.py](https://github.com/Rapptz/discord.py) and organized with **Cogs** for clarity.
 
 ---
 
 ## ✨ Features
 
-- 🔄 **Automatische Übersetzung** (`cogs/autotranslate.py`)  
-  Übersetzt Nachrichten im gleichen Channel (Antwort mit Übersetzung).
+- 🔄 **AutoTranslate (per-channel replies)**  
+  Translate messages inside the same channel and reply with the translated text.
 
-- 🌐 **LangRelay – Sprach-Channel-Spiegelung** (`cogs/langrelay.py`)  
-  Nachrichten in einem Sprach-Channel werden automatisch in alle anderen gemappten Channels übersetzt und gespiegelt.  
-  ➝ mit persistenter Speicherung pro Guild (`./data/langrelay/<guild_id>.json`).
+- 🌐 **LangRelay – Multi-language Channel Relay**  
+  Messages posted in one language channel are automatically translated and relayed to all other configured language channels.  
+  ➝ With per-guild **persistent storage** (`./data/langrelay/<guild_id>.json`).  
+  ➝ **Translation provider can be switched between DeepL and OpenAI GPT models**.  
+  ➝ **Access control**: Administrators can always configure. Additional roles or users can be whitelisted.
 
-- 📝 **Manuelle Übersetzung** (`cogs/translate.py`)  
-  Slash-Commands zum Übersetzen von Texten, Erkennen der Sprache und Auflisten aller verfügbaren DeepL-Sprachen.
+- 📝 **Manual Translation**  
+  Slash commands for translating arbitrary text, detecting source languages, and listing supported languages.
 
-- 📊 **Info** (`cogs/info.py`)  
-  Zeigt Bot-Metadaten: Uptime, Latenz, Versionen, letzter Sync.
+- 📊 **Info**  
+  Bot metadata: uptime, latency, versions, last sync.
 
-- 🏓 **Ping** (`cogs/ping.py`)  
-  Einfacher Check, ob der Bot reagiert.
+- 🏓 **Ping**  
+  Simple health check.
 
 ---
 
 ## ⚙️ Installation & Setup
 
-1. **Repository klonen**
+1. **Clone the repository**
 ```bash
-git clone https://github.com/<dein-repo>/thiscord.git
+git clone https://github.com/<your-repo>/thiscord.git
 cd thiscord
 ```
 
-2. **Dependencies installieren**
+2. **Install dependencies**
 ```bash
-# Wenn eine requirements.txt vorhanden ist
+# If requirements.txt exists
 pip install -r requirements.txt
 
-# Alternativ (direkt)
+# Or manually
 pip install discord.py httpx python-dotenv
 ```
 
-3. **.env Datei anlegen**
+3. **Configure environment variables (`.env`)**
 ```env
-DISCORD_TOKEN=dein-discord-bot-token
-DEEPL_TOKEN=dein-deepl-api-key
-# Optional: GUILD_ID=123456789012345678  (für schnellen Command-Sync im Dev-Server)
-# Optional: DEEPL_API_URL=https://api.deepl.com/v2  (für Pro; Default ist https://api-free.deepl.com/v2)
+DISCORD_TOKEN=your-discord-bot-token
+
+# At least one of the following:
+DEEPL_TOKEN=your-deepl-api-key
+OPENAI_TOKEN=your-openai-api-key
+
+# Optional
+GUILD_ID=123456789012345678     # for fast dev-server slash sync
+DEEPL_API_URL=https://api.deepl.com/v2   # Pro endpoint (default = api-free)
+OPENAI_MODEL=gpt-4o-mini        # override model (default = gpt-4o-mini)
 ```
 
-4. **Bot starten**
+4. **Run the bot**
 ```bash
 python main.py
 ```
 
-> Getestet mit **Python 3.12** (kompatibel zu 3.11+).
+> Tested with **Python 3.12** (compatible with 3.11+).
 
 ---
 
 ## 🔨 Commands
 
-### 🔄 AutoTranslate (Channel-Reply)
+### 🔄 AutoTranslate (inline)
 - `/autotranslate_on target:<lang> [source:<lang>] [formality:<style>] [min_chars:<n>]`  
-  Aktiviert Übersetzung im Channel (Antwort mit Übersetzung).  
-- `/autotranslate_off` – deaktiviert.  
-- `/autotranslate_status` – zeigt aktuellen Status.
+  Enables inline translation in the current channel.  
+- `/autotranslate_off` – disable.  
+- `/autotranslate_status` – show status.
 
 ---
 
-### 🌐 LangRelay (Channel-Spiegelung)
+### 🌐 LangRelay (cross-channel translation)
 
 - `/langrelay_set channel:<#channel> language:<code>`  
-  Mapping für einen Channel setzen/ändern.  
-  ➝ Beispiel: `/langrelay_set channel:#channel_de language:DE`
+  Map a text channel to a language.  
+  ➝ Example: `/langrelay_set channel:#channel_de language:DE`
 
 - `/langrelay_status`  
-  Zeigt die aktuelle Zuordnung.
+  Show current mappings, provider, and access list.
 
 - `/langrelay_reload`  
-  Baut Channel-Cache neu auf.
+  Rebuild channel cache (e.g. after renaming).
 
 - `/langrelay_remove channel:<#channel>`  
-  Entfernt Mapping.
+  Remove a mapping.
 
 - `/langrelay_clear`  
-  Löscht alle Mappings dieser Guild.
+  Clear all mappings in the current guild.
 
-📂 **Persistenz**:  
-- Pro Guild in `./data/langrelay/<guild_id>.json`  
-- Änderungen via Slash-Commands sofort gespeichert.
+- `/langrelay_provider provider:<deepl|openai>`  
+  Switch the active translation provider for this guild.  
+  - Requires appropriate API key in `.env`.  
+  - Persisted per guild alongside the mappings.
+
+📂 **Persistence**:  
+- Stored per guild at `./data/langrelay/<guild_id>.json`  
+- Example schema:
+  ```json
+  {
+    "mapping": {
+      "channel_de": "DE",
+      "channel_en": "EN"
+    },
+    "provider": "openai",
+    "access": {
+      "roles": [123456789],
+      "users": [234567890]
+    }
+  }
+  ```
 
 ---
 
-### 📝 Translate (manuell)
+### 📝 Manual Translate
 
 - `/translate text:<string> target:<lang> [source:<lang>] [formality:<style>]`  
-  Übersetzt Text mit DeepL.
+  Translate any text.
 
 - `/detect text:<string>`  
-  Erkennt Sprache.
+  Detect the language of a text.
 
 - `/languages`  
-  Listet alle verfügbaren Sprachen.
+  List supported languages.
 
 ---
 
 ### 📊 Info
-- `/about` – zeigt Bot-Status, Uptime, Latenz, Versionen.
+- `/about` – show bot status, uptime, latency, versions.
 
 ---
 
 ### 🏓 Utility
-- `/ping` – Antwortet mit „Pong!“.  
+- `/ping` – replies with “Pong!”.
 
 ---
 
-## 📸 Beispiele
+### 🔒 Access Control
+
+- **Administrators** can always configure LangRelay.  
+- Additional **roles** and **users** can be whitelisted to allow them to configure too.  
+- Non-whitelisted users will see the commands but get a clear **permission error message** when trying to use them.  
+- **Access management commands** themselves are only visible to administrators.
+
+#### Commands
+
+- `/langrelay_access_status` – Show current whitelist.  
+- `/langrelay_access_add_role role:@Mods` – Add a role.  
+- `/langrelay_access_remove_role role:@Mods` – Remove a role.  
+- `/langrelay_access_add_user user:@Alice` – Add a specific user.  
+- `/langrelay_access_remove_user user:@Alice` – Remove a specific user.  
+- `/langrelay_access_clear` – Clear whitelist (admins only remain).
+
+---
+
+## 📸 Examples
 
 ### `/langrelay_status`
 ```text
 LangRelay – Status
+Provider: openai
+
 • #channel_de → DE
 • #channel_en → EN
-• #channel_fr → FR (❌ nicht gefunden)
+• #channel_fr → FR (❌ not found)
+
+Access (in addition to Admin):
+• Roles: @Mods
+• Users: @Alice
 ```
 
-### Übersetzung (LangRelay-Beispiel)
+### Relay translation example
 
-User schreibt in `#channel_de`:
+User posts in `#channel_de`:
 ```text
 Hallo zusammen! Wie geht’s?
 ```
 
-Bot postet automatisch in `#channel_en`:
+Bot automatically posts in `#channel_en`:
 ```text
-🌐 Max schrieb in #channel_de:
+🌐 Max wrote in #channel_de:
 > Hallo zusammen! Wie geht’s?
 
-Übersetzung → EN:
+Translation → EN:
 Hello everyone! How are you?
 
-[Zum Original](https://discord.com/channels/...)
+[Jump to original](https://discord.com/channels/...)
 ```
 
 ---
 
-## 🔒 Rechte
-
-- Für Mapping-Änderungen (`/langrelay_set`, `/remove`, `/clear`) sind **Manage Server**-Rechte erforderlich.  
-- Übersetzungen werden mit entschärften Mentions gepostet, damit keine unerwünschten Pings ausgelöst werden.
-
----
-
-## 🛠️ Tech-Stack
+## 🛠️ Tech Stack
 
 - Python 3.12+  
 - [discord.py](https://github.com/Rapptz/discord.py)  
-- [DeepL API](https://www.deepl.com/docs-api/)  
-- Struktur: **Cogs** für modulare Erweiterbarkeit  
-- Persistenz: JSON-Dateien pro Guild (`./data/langrelay/`)
+- [DeepL API](https://www.deepl.com/docs-api/) (optional)  
+- [OpenAI API](https://platform.openai.com/docs/api-reference/chat) (optional)  
+- Cogs for modularity  
+- JSON persistence per guild (`./data/langrelay/`)
 
 ---
 
 ## 🚀 Roadmap
 
-- [ ] Support für Dateianhänge (Links spiegeln)  
-- [ ] Konfigurierbare „Formality“ für LangRelay (wie bei /translate)  
-- [ ] Globale Defaults via Config  
-- [ ] Webinterface für Mapping-Verwaltung  
+- [ ] Support for relaying attachments/links  
+- [ ] Configurable formality setting for LangRelay (like manual translate)  
+- [ ] Global defaults via config  
+- [ ] Web dashboard for mapping & provider management  
 
 ---
 
-## 📄 Lizenz
+## 📄 License
 
-MIT License – siehe [LICENSE](LICENSE)
+MIT License – see [LICENSE](LICENSE)

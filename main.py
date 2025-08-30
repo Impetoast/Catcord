@@ -15,6 +15,7 @@ ROOT = Path(__file__).parent
 load_dotenv(ROOT / ".env")
 
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+OPENAI_TOKEN = os.getenv("OPENAI_TOKEN")
 GUILD_ID = os.getenv("GUILD_ID")  # optional (Dev-Server für schnellen Sync)
 GUILD = discord.Object(id=int(GUILD_ID)) if GUILD_ID else None
 

@@ -1,6 +1,9 @@
 # Virtuelle Umgebung
 venv/
 
+# User Configs
+data/
+
 # Geheimnisse
 .env
 

@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Catcord – Admin Quickstart</title>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --text:#c9d1d9; --muted:#8b949e; --accent:#58a6ff; --border:#30363d; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.6 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial; }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 28px 20px; }
+  h1 { font-size: 1.9rem; margin: 0 0 8px; }
+  p.lead { color: var(--muted); margin: 0 0 16px; }
+  section { background: var(--panel); border:1px solid var(--border); border-radius: 12px; padding: 16px 18px; margin: 14px 0; }
+  h2 { font-size: 1.2rem; margin: 0 0 10px; }
+  pre, code { background:#0b1220; color:#d1e7ff; border:1px solid #19223a; border-radius:6px; }
+  code { padding:2px 6px; }
+  pre { padding:10px 12px; overflow-x:auto; }
+  ul { margin: 0.4em 0 0.4em 1.2em; }
+  .two { display:grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .note { background:#0f1724; border-left:3px solid var(--accent); padding:10px 12px; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Catcord – Admin Quickstart</h1>
+    <p class="lead">One-page setup and operations checklist for Discord server administrators.</p>
+
+    <section>
+      <h2>1) Permissions</h2>
+      <ul>
+        <li><code>Send Messages</code>, <code>Manage Webhooks</code>, <code>Read Message History</code></li>
+        <li>If using threads: <code>Create Public Threads</code></li>
+      </ul>
+    </section>
+
+    <section class="two">
+      <div>
+        <h2>2) Map Channels</h2>
+<pre><code>/langrelay_set channel:#german  language:DE
+/langrelay_set channel:#english language:EN
+/langrelay_set channel:#french  language:FR</code></pre>
+      </div>
+      <div>
+        <h2>3) Choose Provider</h2>
+<pre><code>/langrelay_provider provider:deepl
+# or:
+/langrelay_provider provider:openai</code></pre>
+      </div>
+    </section>
+
+    <section class="two">
+      <div>
+        <h2>4) Toggle Options</h2>
+<pre><code>/langrelay_replymode state:on
+/langrelay_thread_mirroring state:on</code></pre>
+      </div>
+      <div>
+        <h2>5) Verify</h2>
+<pre><code>/langrelay_status</code></pre>
+      </div>
+    </section>
+
+    <section>
+      <h2>Access Control</h2>
+<pre><code>/langrelay_access_status
+/langrelay_access_add_role   role:@Moderators
+/langrelay_access_remove_role role:@Moderators
+/langrelay_access_add_user    user:@Alice
+/langrelay_access_remove_user user:@Alice
+/langrelay_access_clear</code></pre>
+    </section>
+
+    <section class="two">
+      <div>
+        <h2>Troubleshooting</h2>
+        <ul>
+          <li>Nothing mirrored → check mappings & permissions.</li>
+          <li>Translation fails → verify keys / provider.</li>
+          <li>Threads not mirrored → ensure thread permission.</li>
+        </ul>
+      </div>
+      <div>
+        <h2>Useful Utilities</h2>
+<pre><code>/translate  text:&lt;message&gt;
+/detect     text:&lt;message&gt;
+/languages
+/ping
+/about</code></pre>
+      </div>
+    </section>
+
+    <section class="note">
+      <strong>Tip:</strong> Use consistent channel names (e.g., <code>#german</code>, <code>#english</code>, <code>#french</code>) and map each once.
+    </section>
+  </div>
+</body>
+</html>

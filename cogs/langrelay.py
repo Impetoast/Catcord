@@ -34,7 +34,7 @@ TRANSLATE_URL = f"{DEEPL_API_URL}/translate"
 DATA_DIR = (Path(__file__).resolve().parent.parent / "data" / "langrelay")
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-DEFAULT_PROVIDER = "deepl" if DEEPL_TOKEN else ("openai" if OPENAI_TOKEN else "deepl")
+DEFAULT_PROVIDER = "openai" if OPENAI_TOKEN else ("deepl" if DEEPL_TOKEN else "openai")
 WEBHOOK_NAME = os.getenv("LANGRELAY_WEBHOOK_NAME", "Catcord")
 WEBHOOK_CACHE_SIZE = 64
 

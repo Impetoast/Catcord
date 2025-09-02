@@ -25,9 +25,6 @@ It mirrors and translates messages across language-specific channels, using **we
 - 📎 **Attachment Support**  
   Files and images are re-uploaded along with translated messages.
 
-- 🔒 **Access Control**  
-  Admins can always configure Catcord. Additional roles/users can be whitelisted.
-
 - 💾 **Persistent Configuration**  
   Per-guild config is stored in `./data/langrelay/<guild_id>.json`.
 
@@ -94,8 +91,11 @@ It mirrors and translates messages across language-specific channels, using **we
 - `/langrelay_provider <deepl|openai>` – Select translation provider.  
 - `/langrelay_replymode <on|off>` – Toggle reply context.  
 - `/langrelay_thread_mirroring <on|off>` – Toggle thread mirroring.  
+- `/langrelay_reload` – Reload channel cache after renaming/adding channels.  
+- `/langrelay_remove channel:<#>` – Remove mapping for a channel.  
+- `/langrelay_clear` – Remove all mappings.  
+- `/langrelay_help` – Show overview of all LangRelay commands.
 - `/langrelay_remove` / `/langrelay_clear` – Remove mappings.  
-- `/langrelay_access_*` – Manage whitelist for roles and users.  
 - `/translate <text>` – Translate text manually.  
 - `/detect <text>` – Detect the language of a given text.  
 - `/languages` – List available translation languages.  

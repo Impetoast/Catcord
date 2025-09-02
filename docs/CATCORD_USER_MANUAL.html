@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Catcord – User Manual</title>
+<style>
+:root { --bg:#0d1117; --panel:#161b22; --text:#c9d1d9; --muted:#8b949e; --accent:#58a6ff; --border:#30363d; }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--text); font:16px/1.6 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial; }
+.container { max-width: 940px; margin: 0 auto; padding: 40px 20px; }
+h1, h2, h3 { line-height: 1.25; margin: 0.4em 0; }
+h1 { font-size: 2.0rem; }
+h2 { font-size: 1.3rem; margin-top: 2.0rem; }
+h3 { font-size: 1.1rem; margin-top: 1.2rem; }
+p.lead { color: var(--muted); margin-top: 4px; }
+section { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin: 16px 0; }
+code, pre { background:#0b1220; color:#d1e7ff; border:1px solid #19223a; border-radius:6px; }
+code { padding:2px 6px; }
+ul { margin: 0.5em 0 0.5em 1.25em; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.note { background:#0f1724; border-left:3px solid var(--accent); padding:10px 12px; color: var(--text); }
+.small { color: var(--muted); font-size: 0.95rem; }
+.footer { color: var(--muted); font-size: 0.9rem; margin-top: 24px; text-align: center; }
+</style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Catcord – User Manual</h1>
+      <p class="lead">How to use Catcord as a regular Discord member.</p>
+    </header>
+
+    <section>
+      <h2>Overview</h2>
+      <p>Catcord helps people chat across languages. When you write in a language-specific channel (for example, <code>#german</code>), Catcord can mirror your message to other mapped channels (such as <code>#english</code> or <code>#french</code>). Mirrored messages may be automatically translated and are posted via webhooks using your display name and avatar — so they look like you sent them.</p>
+    </section>
+
+    <section>
+      <h2>How It Works</h2>
+      <ul>
+        <li><strong>Channel mappings:</strong> Admins connect language channels (e.g., <code>#german</code> ↔ <code>#english</code> ↔ <code>#french</code>).</li>
+        <li><strong>Invisible posting:</strong> Catcord uses webhooks to post mirrored messages with your name and avatar.</li>
+        <li><strong>Translation:</strong> Depending on server settings, messages are translated automatically (DeepL or OpenAI).</li>
+        <li><strong>Loop protection:</strong> Messages posted by webhooks aren’t mirrored again.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Using Catcord</h2>
+      <h3>Post messages</h3>
+      <ul>
+        <li>Write normally in your language channel. If channels are mapped, your message will appear in the other language channels.</li>
+        <li>Attachments (images/files) are mirrored with your message when possible.</li>
+      </ul>
+      <h3>Replies</h3>
+      <ul>
+        <li>If enabled by admins, mirrored replies include a short translated line indicating what you replied to.</li>
+      </ul>
+      <h3>Threads</h3>
+      <ul>
+        <li>If enabled by admins, messages in a thread are mirrored into threads with the same name in the other channels.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Tips</h2>
+      <ul>
+        <li>Keep sentences clear and simple for better translations.</li>
+        <li>If a translation seems off, try rephrasing and sending again.</li>
+        <li>Mentions may be sanitized to avoid pinging people across different channels.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Privacy & Transparency</h2>
+      <ul>
+        <li>Mirrored posts use your display name and avatar via webhooks.</li>
+        <li>Catcord does not DM you and does not store your personal messages beyond what is needed to mirror them.</li>
+        <li>Admins control which channels are mapped and which features are enabled.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Troubleshooting</h2>
+      <ul>
+        <li><strong>My message isn’t mirrored:</strong> Ask an admin whether your channel is mapped and whether you have permission to post in the target channels.</li>
+        <li><strong>Attachment didn’t appear:</strong> Retry with a smaller file; very large attachments can fail.</li>
+        <li><strong>Translation looks wrong:</strong> Automatic translation isn’t perfect. Rephrase and resend, or ask an admin which provider is used.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>FAQ</h2>
+      <ul>
+        <li><strong>Will I get DMs from Catcord?</strong> No. Catcord posts only in channels the admins configured.</li>
+        <li><strong>Can I turn off mirroring for myself?</strong> Mirroring follows server-wide settings. Ask an admin if you need an exception.</li>
+        <li><strong>Does Catcord ping people?</strong> Mentions may be sanitized in relays to prevent accidental mass-pinging across channels.</li>
+      </ul>
+    </section>
+
+    <p class="footer">© 2025 Catcord Project – User Manual</p>
+  </div>
+</body>
+</html>

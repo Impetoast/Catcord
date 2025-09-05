@@ -1,0 +1,38 @@
+
+/* Catcord docs – responsive add‑on (drop‑in CSS) */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; line-height: 1.55; margin: 24px; max-width: 900px; }
+h1 { margin-top: 0; font-size: clamp(1.75rem, 2.6vw + 1rem, 2.4rem); }
+h2 { margin-top: 28px; font-size: clamp(1.25rem, 1.6vw + 0.9rem, 1.6rem); }
+h3 { margin-top: 22px; font-size: clamp(1.05rem, 1.2vw + 0.8rem, 1.25rem); }
+
+/* Code blocks & inline code */
+pre, code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, Monaco, monospace; background:#0d1117; }
+pre { padding: 12px; border-radius: 8px; overflow: auto; }
+code { padding: 0.1em 0.25em; border-radius: 4px; }
+
+/* Media */
+img, video { max-width: 100%; height: auto; display: block; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 8px; border-bottom: 1px solid #e5e7eb; }
+thead th { background:#fff; position: sticky; top: 0; }
+
+/* Notes / tips (matches your existing .note block) */
+.note { background:#fff8e1; border:1px solid #ffe082; padding:10px; border-radius:6px; }
+
+/* Links that could be long (GitHub URLs, etc.) */
+a { word-break: break-word; }
+
+/* Narrow screens */
+@media (max-width: 900px) {
+  body { margin: 20px; max-width: 100%; }
+}
+@media (max-width: 640px) {
+  body { margin: 14px; }
+  pre { font-size: 0.95rem; }
+  ul, ol { padding-left: 1.1rem; }
+}

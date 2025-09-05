@@ -14,7 +14,7 @@ from discord import app_commands
 from discord.ext import commands
 import httpx
 
-# Hilfsmodul mit Labels/Aliasen/Autocomplete
+# Hilfsmodul mit Labels/Aliasen/Autocomplete (deins)
 from .langcodes import (
     normalize_code,
     alias_for_provider,
@@ -56,7 +56,7 @@ async def _deepl_targets() -> Set[str]:
             resp = await client.get(url, params={"type": "target", "auth_key": DEEPL_TOKEN})
         resp.raise_for_status()
         data = resp.json() or []
-        targets = { (item.get("language") or "").upper() for item in data if item.get("language") }
+        targets = {(item.get("language") or "").upper() for item in data if item.get("language")}
         _DEEPL_LANG_CACHE["targets"] = targets
         _DEEPL_LANG_CACHE["ts"] = now
         return targets
@@ -74,7 +74,29 @@ def admins_only():
 
 
 class LangRelay(commands.Cog):
-    """Spiegelt Nachrichten zwischen Sprachkanälen (Übersetzung, Webhook-Impersonation, klickbare Mentions ohne Ping)."""
+    """
+    Spiegelt Nachrichten zwischen Sprachkanälen (Übersetzung, Webhook-Impersonation,
+    klickbare Mentions ohne Ping).
+
+    **Neu: Mehrere unabhängige Relay-Gruppen.**
+    Beispiel:
+      Gruppe "EU": #german ↔ #english ↔ #french
+      Gruppe "LATAM": #spanish ↔ #portuguese-br ↔ #english-us
+
+    Jede Gruppe ist voll bidirektional. Ein Channel darf in mehreren Gruppen sein;
+    Pro Nachricht werden Duplikate pro Zielkanal vermieden.
+
+    Persistenz pro Guild: ./data/langrelay/<guild_id>.json
+    Struktur (vereinfacht):
+    {
+      "provider": "deepl|openai",
+      "options": {"enabled": true, "replymode": false, "thread_mirroring": false},
+      "groups": {
+        "default": {"🇩🇪-german": "DE", "🇺🇸-english": "EN"},
+        "americas": {"spanish": "ES", "english-us": "EN-US"}
+      }
+    }
+    """
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -89,70 +111,93 @@ class LangRelay(commands.Cog):
     def _guild_path(self, guild_id: int) -> Path:
         return DATA_DIR / f"{guild_id}.json"
 
-    def _ensure_subblocks(self, cfg: Dict[str, Any]):
-        # keine Access-Whitelist mehr – nur Admins
+    def _ensure_blocks(self, cfg: Dict[str, Any]):
+        # options
         opt = cfg.get("options") or {}
         cfg["options"] = {
+            "enabled": bool(opt.get("enabled", True)),
             "replymode": bool(opt.get("replymode", False)),
             "thread_mirroring": bool(opt.get("thread_mirroring", False)),
         }
-        if "provider" not in cfg:
-            cfg["provider"] = DEFAULT_PROVIDER
-        if "mapping" not in cfg:
-            cfg["mapping"] = {}
+        # groups (Migration altes mapping -> default)
+        groups = cfg.get("groups")
+        if not isinstance(groups, dict):
+            groups = {}
+        legacy = cfg.get("mapping")
+        if isinstance(legacy, dict) and legacy:
+            groups.setdefault("default", {})
+            groups["default"].update({str(k): str(v) for k, v in legacy.items()})
+            cfg.pop("mapping", None)
+        cfg["groups"] = {
+            str(g): {str(ch): str(code) for ch, code in (channels or {}).items()}
+            for g, channels in groups.items()
+        }
+        # provider
+        prov = cfg.get("provider")
+        cfg["provider"] = prov if prov in {"deepl", "openai"} else DEFAULT_PROVIDER
 
     def _load_guild(self, guild: discord.Guild):
         p = self._guild_path(guild.id)
-        cfg = {"mapping": {}, "provider": DEFAULT_PROVIDER, "options": {"replymode": False, "thread_mirroring": False}}
+        data: Dict[str, Any] = {}
         if p.exists():
             try:
                 data = json.loads(p.read_text(encoding="utf-8"))
-                if isinstance(data, dict):
-                    cfg.update(data)
             except Exception as e:
-                print(f"⚠️ Konnte Konfiguration für {guild.name} nicht laden: {e}")
-        self._ensure_subblocks(cfg)
-        self.guild_config[guild.id] = cfg
+                print(f"⚠️ Konnte Konfiguration für {guild.name} nicht laden: {e} → verwende Defaults")
+        self._ensure_blocks(data)
+        self.guild_config[guild.id] = {
+            "provider": data.get("provider", DEFAULT_PROVIDER),
+            "options": data.get("options", {"enabled": True, "replymode": False, "thread_mirroring": False}),
+            "groups": data.get("groups", {}),
+        }
         self._save_guild(guild.id)
 
     def _save_guild(self, guild_id: int):
         cfg = self.guild_config.setdefault(guild_id, {
-            "mapping": {}, "provider": DEFAULT_PROVIDER,
-            "options": {"replymode": False, "thread_mirroring": False},
+            "provider": DEFAULT_PROVIDER,
+            "options": {"enabled": True, "replymode": False, "thread_mirroring": False},
+            "groups": {},
         })
-        self._ensure_subblocks(cfg)
-        p = self._guild_path(guild_id)
+        self._ensure_blocks(cfg)
         try:
-            p.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+            self._guild_path(guild_id).write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
         except Exception as e:
             print(f"⚠️ Konnte Konfiguration für Guild {guild_id} nicht speichern: {e}")
 
-    def _mapping(self, guild_id: int) -> Dict[str, str]:
+    # ---- accessors ----
+
+    def _group_choice_list(self, guild: discord.Guild, current: str):
+        groups = self._groups(guild.id)
+        keys = sorted(groups.keys())
+        if current:
+            keys = [g for g in keys if current.lower() in g.lower()]
+        return [app_commands.Choice(name=g, value=g) for g in keys][:25]
+
+    def _groups(self, guild_id: int) -> Dict[str, Dict[str, str]]:
         return self.guild_config.setdefault(guild_id, {
-            "mapping": {}, "provider": DEFAULT_PROVIDER,
-            "options": {"replymode": False, "thread_mirroring": False},
-        })["mapping"]
+            "provider": DEFAULT_PROVIDER,
+            "options": {"enabled": True, "replymode": False, "thread_mirroring": False},
+            "groups": {},
+        })["groups"]
 
     def _provider(self, guild_id: int) -> str:
         return self.guild_config.setdefault(guild_id, {
-            "mapping": {}, "provider": DEFAULT_PROVIDER,
-            "options": {"replymode": False, "thread_mirroring": False},
+            "provider": DEFAULT_PROVIDER,
+            "options": {"enabled": True, "replymode": False, "thread_mirroring": False},
+            "groups": {},
         })["provider"]
 
     def _set_provider(self, guild_id: int, provider: str):
-        cfg = self.guild_config.setdefault(guild_id, {
-            "mapping": {}, "provider": DEFAULT_PROVIDER,
-            "options": {"replymode": False, "thread_mirroring": False},
-        })
-        cfg["provider"] = provider
+        self.guild_config.setdefault(guild_id, {"provider": DEFAULT_PROVIDER})["provider"] = provider
         self._save_guild(guild_id)
 
     def _options(self, guild_id: int) -> Dict[str, bool]:
         cfg = self.guild_config.setdefault(guild_id, {
-            "mapping": {}, "provider": DEFAULT_PROVIDER,
-            "options": {"replymode": False, "thread_mirroring": False},
+            "provider": DEFAULT_PROVIDER,
+            "options": {"enabled": True, "replymode": False, "thread_mirroring": False},
+            "groups": {},
         })
-        self._ensure_subblocks(cfg)
+        self._ensure_blocks(cfg)
         return cfg["options"]
 
     # -------------------- Caching / Semaphores --------------------
@@ -171,12 +216,16 @@ class LangRelay(commands.Cog):
 
     # -------------------- Mentions: klickbar ohne Ping --------------------
     async def _resolve_mentions(self, message: discord.Message) -> str:
-        """<@id>/<@&id>/<#id> bevorzugen (klickbar); Fallback @Name/#kanal. Lad fehlende Namen via REST nach."""
+        """
+        Bevorzuge Discord-Tokens (<@id>, <@&id>, <#id>) → klickbar;
+        Fallback auf @Name/#kanal. (AllowedMentions.none() verhindert Pings)
+        """
         text = message.content or ""
         guild = message.guild
         if not guild or not text:
             return text
 
+        # evtl. Zero-width entfernen
         for z in ("\u200b", "\u200e", "\u200f", "\u2060"):
             text = text.replace(z, "")
 
@@ -188,8 +237,8 @@ class LangRelay(commands.Cog):
         role_map = {r.id: r.name for r in getattr(message, "role_mentions", [])}
         chan_map = {c.id: c.name for c in getattr(message, "channel_mentions", [])}
 
-        missing_user_ids = [uid for uid in user_ids if uid not in user_map]
-        for uid in missing_user_ids:
+        # fehlende Namen bestmöglich nachladen
+        for uid in [u for u in user_ids if u not in user_map]:
             mem = guild.get_member(uid)
             if mem:
                 user_map[uid] = mem.display_name
@@ -301,7 +350,6 @@ class LangRelay(commands.Cog):
                 if h.name == WEBHOOK_NAME:
                     self._webhook_cache[channel.guild.id][channel.id] = h
                     if len(self._webhook_cache[channel.guild.id]) > WEBHOOK_CACHE_SIZE:
-                        # einfachen FIFO-Kahlschlag
                         first_key = next(iter(self._webhook_cache[channel.guild.id]))
                         if first_key != channel.id:
                             self._webhook_cache[channel.guild.id].pop(first_key, None)
@@ -363,6 +411,54 @@ class LangRelay(commands.Cog):
             return
         await dest.send(**kwargs)
 
+    # -------------------- Thread-Hilfen --------------------
+    async def _get_or_create_target_thread(
+        self, base_channel: discord.TextChannel, thread_name: str, auto_archive_duration: int = 10080
+    ) -> Optional[discord.Thread]:
+        try:
+            for th in base_channel.threads:
+                if th.name == thread_name and not th.archived:
+                    return th
+            archived = []
+            try:
+                async for th in base_channel.archived_threads(private=False, limit=50):
+                    archived.append(th)
+            except Exception:
+                pass
+            for th in archived:
+                if th.name == thread_name:
+                    try:
+                        await th.edit(archived=False, locked=False)
+                        return th
+                    except Exception:
+                        pass
+            return await base_channel.create_thread(
+                name=thread_name,
+                type=discord.ChannelType.public_thread,
+                auto_archive_duration=auto_archive_duration,
+                reason="LangRelay Thread-Mirroring",
+            )
+        except discord.Forbidden:
+            print(f"⚠️ Keine Berechtigung zum Erstellen von Threads in #{base_channel.name}.")
+            return None
+        except Exception as e:
+            print(f"⚠️ Thread-Erstellung in #{base_channel.name} fehlgeschlagen: {e}")
+            return None
+
+    # ---- Power (On/Off) ----
+    @app_commands.command(name="langrelay_power", description="Schaltet das Relaying serverweit an/aus.")
+    @app_commands.choices(state=[app_commands.Choice(name="on", value="on"),
+                                 app_commands.Choice(name="off", value="off")])
+    @admins_only()
+    async def cmd_power(self, interaction: discord.Interaction, state: app_commands.Choice[str]):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
+        opts = self._options(interaction.guild.id)
+        opts["enabled"] = (state.value == "on")
+        self._save_guild(interaction.guild.id)
+        await interaction.response.send_message(f"🔌 LangRelay is now **{state.value.upper()}**.", ephemeral=True)
+
+
     # -------------------- Listeners --------------------
     @commands.Cog.listener()
     async def on_ready(self):
@@ -385,7 +481,7 @@ class LangRelay(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        # Schutz / Scope
+        # Scope / Schutz
         if message.author.bot or not message.guild:
             return
         if message.webhook_id is not None:
@@ -397,8 +493,12 @@ class LangRelay(commands.Cog):
 
         guild = message.guild
         await self._ensure_cache(guild)
-        mapping = self._mapping(guild.id)
+        groups = self._groups(guild.id)
         opts = self._options(guild.id)
+
+        if not opts.get("enabled", True):
+            return
+
         replymode = bool(opts.get("replymode", False))
         thread_mirroring = bool(opts.get("thread_mirroring", False))
 
@@ -406,171 +506,239 @@ class LangRelay(commands.Cog):
         src_thread: Optional[discord.Thread] = None
         if isinstance(message.channel, discord.Thread):
             src_thread = message.channel
-            src_parent = src_thread.parent
-            if not isinstance(src_parent, discord.TextChannel):
+            parent = src_thread.parent
+            if not isinstance(parent, discord.TextChannel):
                 return
-            src_channel = src_parent
+            src_channel = parent
         else:
             src_channel = message.channel
 
-        src_lang = mapping.get(src_channel.name)
-        if not src_lang:
+        # Alle Gruppen finden, in denen der Quellkanal Mitglied ist
+        src_groups: List[str] = [gname for gname, chans in groups.items() if src_channel.name in chans]
+        if not src_groups:
             return  # kein Relay-Channel
 
-        # Name/Avatar des Autors übernehmen
         display_name = message.author.display_name
         try:
             avatar_url = (message.author.display_avatar or message.author.avatar).url
         except Exception:
             avatar_url = None
 
-        base_text_with_tokens = await self._resolve_mentions(message)
+        base_text = await self._resolve_mentions(message)
 
         async with self._sem(guild.id):
+            sent_to: Set[int] = set()
             tasks = []
-            for tgt_name, tgt_lang in mapping.items():
-                if tgt_name == src_channel.name:
-                    continue
-                tgt_channel = self._get_channel_by_name(guild.id, tgt_name)
-                if not tgt_channel:
-                    continue
+            for gname in src_groups:
+                chans = groups.get(gname, {})
+                src_lang = chans.get(src_channel.name)
+                for tgt_name, tgt_lang in chans.items():
+                    if tgt_name == src_channel.name:
+                        continue
+                    tgt_channel = self._get_channel_by_name(guild.id, tgt_name)
+                    if not tgt_channel or tgt_channel.id in sent_to:
+                        continue
+                    sent_to.add(tgt_channel.id)
 
-                async def _one_target(_tgt_channel=tgt_channel, _tgt_lang=tgt_lang):
-                    out_text = base_text_with_tokens
-                    try:
-                        if out_text and _tgt_lang:
-                            out_text = await self._translate(
-                                text=out_text,
-                                target_lang=_tgt_lang,
-                                source_lang=src_lang,
-                                guild_id=guild.id,
+                    async def _one(_tgt=tgt_channel, _tgt_lang=tgt_lang, _src_lang=src_lang):
+                        out_text = base_text
+                        try:
+                            if out_text and _tgt_lang:
+                                out_text = await self._translate(out_text, _tgt_lang, _src_lang, guild.id)
+                        except Exception as e:
+                            print(f"⚠️ Übersetzung fehlgeschlagen ({src_channel.name} → {_tgt.name}): {e}")
+                            out_text = base_text
+
+                        if replymode and message.reference and isinstance(message.reference.resolved, discord.Message):
+                            replied = message.reference.resolved
+                            replied_clean = await self._resolve_mentions(replied)
+                            preview = (replied_clean[:90] + "…") if len(replied_clean) > 90 else replied_clean
+                            ctx = f"(reply to {replied.author.display_name}: {preview})"
+                            try:
+                                ctx_tr = await self._translate(ctx, _tgt_lang, _src_lang, guild.id)
+                            except Exception:
+                                ctx_tr = ctx
+                            out_text = f"{out_text}\n\n> {ctx_tr}" if out_text else f"> {ctx_tr}"
+
+                        files: List[discord.File] = []
+                        try:
+                            for att in message.attachments[:10]:
+                                data = await att.read()
+                                buf = io.BytesIO(data)
+                                buf.seek(0)
+                                files.append(discord.File(buf, filename=att.filename, spoiler=att.is_spoiler()))
+                        except Exception as e:
+                            print(f"⚠️ Konnte Anhänge nicht lesen: {e}")
+
+                        if not out_text and not files:
+                            return
+
+                        target_thread: Optional[discord.Thread] = None
+                        if thread_mirroring and src_thread is not None:
+                            target_thread = await self._get_or_create_target_thread(
+                                base_channel=_tgt,
+                                thread_name=src_thread.name,
+                                auto_archive_duration=src_thread.auto_archive_duration or 1440
                             )
-                    except Exception as e:
-                        print(f"⚠️ Übersetzung fehlgeschlagen ({src_channel.name} → {_tgt_channel.name}): {e}")
-                        out_text = base_text_with_tokens
 
-                    # optionaler Reply-Kontext
-                    if replymode and message.reference and isinstance(message.reference.resolved, discord.Message):
-                        replied_to = message.reference.resolved
-                        replied_text_clean = await self._resolve_mentions(replied_to)
-                        preview = (replied_text_clean[:90] + "…") if len(replied_text_clean) > 90 else replied_text_clean
-                        base_ctx = f"(reply to {replied_to.author.display_name}: {preview})"
-                        try:
-                            base_ctx_tr = await self._translate(base_ctx, _tgt_lang, src_lang, guild.id)
-                        except Exception:
-                            base_ctx_tr = base_ctx
-                        out_text = f"{out_text}\n\n> {base_ctx_tr}" if out_text else f"> {base_ctx_tr}"
-
-                    # Anhänge mitnehmen
-                    files: List[discord.File] = []
-                    try:
-                        for att in message.attachments[:10]:
-                            data = await att.read()
-                            buf = io.BytesIO(data)
-                            buf.seek(0)
-                            files.append(discord.File(buf, filename=att.filename, spoiler=att.is_spoiler()))
-                    except Exception as e:
-                        print(f"⚠️ Konnte Anhänge nicht lesen: {e}")
-
-                    if not out_text and not files:
-                        return
-
-                    # Thread-Mirroring
-                    target_thread: Optional[discord.Thread] = None
-                    if thread_mirroring and src_thread is not None:
-                        try:
-                            for th in _tgt_channel.threads:
-                                if th.name == src_thread.name and not th.archived:
-                                    target_thread = th
-                                    break
-                            if target_thread is None:
-                                target_thread = await _tgt_channel.create_thread(
-                                    name=src_thread.name,
-                                    type=discord.ChannelType.public_thread,
-                                    auto_archive_duration=src_thread.auto_archive_duration or 1440,
-                                    reason="LangRelay Thread-Mirroring",
+                        webhook = await self._get_or_create_webhook(_tgt)
+                        dest = target_thread or _tgt
+                        if not webhook:
+                            try:
+                                await self._safe_channel_send(
+                                    dest,
+                                    content=out_text or None,
+                                    files=files or None,
+                                    allowed_mentions=discord.AllowedMentions.none(),
                                 )
-                        except Exception:
-                            target_thread = None
+                            except Exception as e:
+                                print(f"⚠️ Nachricht in #{_tgt.name} konnte nicht gesendet werden: {e}")
+                            return
 
-                    webhook = await self._get_or_create_webhook(_tgt_channel)
-                    dest = target_thread if target_thread else _tgt_channel
-                    if not webhook:
                         try:
-                            await self._safe_channel_send(
-                                dest,
-                                content=out_text if out_text else None,
-                                files=files if files else None,
-                                allowed_mentions=discord.AllowedMentions.none(),  # klickbar, aber stumm
+                            await self._safe_webhook_send(
+                                webhook,
+                                content=out_text or None,
+                                files=files or None,
+                                allowed_mentions=discord.AllowedMentions.none(),  # klickbar, stumm
+                                thread=target_thread,
+                                username=display_name,
+                                avatar_url=avatar_url,
                             )
+                        except TypeError:
+                            # ältere discord.py ohne thread=
+                            try:
+                                await self._safe_channel_send(
+                                    dest,
+                                    content=out_text or None,
+                                    files=files or None,
+                                    allowed_mentions=discord.AllowedMentions.none(),
+                                )
+                            except Exception as e:
+                                print(f"⚠️ Webhook/Thread-Fallback in #{_tgt.name} fehlgeschlagen: {e}")
                         except Exception as e:
-                            print(f"⚠️ Nachricht in #{_tgt_channel.name} konnte nicht gesendet werden: {e}")
-                        return
+                            print(f"⚠️ Webhook-Senden in #{_tgt.name} fehlgeschlagen: {e}")
 
-                    try:
-                        await self._safe_webhook_send(
-                            webhook,
-                            content=out_text if out_text else None,
-                            files=files if files else None,
-                            allowed_mentions=discord.AllowedMentions.none(),  # klickbar, aber stumm
-                            thread=target_thread,
-                            username=display_name,
-                            avatar_url=avatar_url,
-                        )
-                    except TypeError:
-                        # ältere discord.py → ohne thread=
-                        try:
-                            await self._safe_channel_send(
-                                dest,
-                                content=out_text if out_text else None,
-                                files=files if files else None,
-                                allowed_mentions=discord.AllowedMentions.none(),
-                            )
-                        except Exception as e:
-                            print(f"⚠️ Webhook/Thread-Fallback in #{_tgt_channel.name} fehlgeschlagen: {e}")
-                    except Exception as e:
-                        print(f"⚠️ Webhook-Senden in #{_tgt_channel.name} fehlgeschlagen: {e}")
-
-                tasks.append(_one_target())
+                    tasks.append(_one())
             if tasks:
                 await asyncio.gather(*tasks)
 
     # -------------------- Commands --------------------
 
-    @app_commands.command(name="langrelay_set", description="Setzt/ändert die Sprache eines Channels (persistiert).")
-    @app_commands.describe(channel="Ziel-Textkanal", language="Sprachcode/Tag (z. B. DE, EN-GB, PT-BR, ZH, ZH-HANT …)")
+    @app_commands.command(name="langrelay_status", description="Zeigt Provider, Optionen & Gruppen.")
     @admins_only()
-    async def cmd_set(self, interaction: discord.Interaction, channel: discord.TextChannel, language: str):
+    async def cmd_status(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
+        await self._ensure_cache(interaction.guild)
+        provider = self._provider(interaction.guild.id)
+        opts = self._options(interaction.guild.id)
+        groups = self._groups(interaction.guild.id)
+
+        lines = [f"**Provider:** `{provider}`", "", "**Gruppen:**"]
+        if not groups:
+            lines.append("_keine definiert_ (nutze /langrelay_group_create)\n")
+        else:
+            for gname, chans in groups.items():
+                lines.append(f"• **{gname}**:")
+                for ch_name, code in chans.items():
+                    ch_obj = self._get_channel_by_name(interaction.guild.id, ch_name)
+                    lines.append(f"  - {(f'<#{ch_obj.id}>' if ch_obj else f'#{ch_name}') } → `{code}`")
+                lines.append("")
+        lines.append("**Optionen:**")
+        lines.append(f"• power: `{'on' if opts.get('enabled', True) else 'off'}`")
+        lines.append(f"• replymode: `{'on' if opts.get('replymode') else 'off'}`")
+        lines.append(f"• thread_mirroring: `{'on' if opts.get('thread_mirroring') else 'off'}`")
+        embed = discord.Embed(title="LangRelay – Status", description="\n".join(lines))
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # ---- Power (On/Off) ----
+    @app_commands.command(name="langrelay_power", description="Schaltet das Relaying serverweit an/aus.")
+    @app_commands.choices(state=[app_commands.Choice(name="on", value="on"),
+                                 app_commands.Choice(name="off", value="off")])
+    @admins_only()
+    async def cmd_power(self, interaction: discord.Interaction, state: app_commands.Choice[str]):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
+        opts = self._options(interaction.guild.id)
+        opts["enabled"] = (state.value == "on")
+        self._save_guild(interaction.guild.id)
+        await interaction.response.send_message(f"🔌 LangRelay is now **{state.value.upper()}**.", ephemeral=True)
+
+    # ---- Gruppen-Management ----
+    @app_commands.command(name="langrelay_group_create", description="Erstellt eine neue Relay-Gruppe.")
+    @admins_only()
+    async def cmd_group_create(self, interaction: discord.Interaction, name: str):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
+        name = name.strip()
+        groups = self._groups(interaction.guild.id)
+        if name in groups:
+            return await interaction.response.send_message(f"ℹ️ Gruppe **{name}** existiert bereits.", ephemeral=True)
+        groups[name] = {}
+        self._save_guild(interaction.guild.id)
+        await interaction.response.send_message(f"✅ Gruppe **{name}** erstellt.", ephemeral=True)
+
+    @app_commands.command(name="langrelay_group_delete", description="Löscht eine Relay-Gruppe samt Zuordnungen.")
+    @admins_only()
+    async def cmd_group_delete(self, interaction: discord.Interaction, group: str):
         if not interaction.guild:
             return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
 
-        lang = normalize_code(language or "")
-        targets = await _deepl_targets() if (DEEPL_TOKEN and self._provider(interaction.guild.id) == "deepl") else None
-        lang = alias_for_provider(lang or "", targets or set())
+        groups = self._groups(interaction.guild.id)
+        if group not in groups:
+            return await interaction.response.send_message(f"ℹ️ Gruppe **{group}** nicht gefunden.", ephemeral=True)
 
-        await self._ensure_cache(interaction.guild)
-        mapping = self._mapping(interaction.guild.id)
-        mapping[channel.name] = lang
+        groups.pop(group, None)
+        self._save_guild(interaction.guild.id)
+        await interaction.response.send_message(f"🗑️ Gruppe **{group}** gelöscht.", ephemeral=True)
+
+    @cmd_group_delete.autocomplete("group")
+    async def ac_group_delete(self, interaction: discord.Interaction, current: str):
+        if not interaction.guild:
+            return []
+        return self._group_choice_list(interaction.guild, current)
+    @app_commands.command(name="langrelay_group_add", description="Fügt Channel+Sprachcode zu einer Gruppe hinzu.")
+    @app_commands.describe(group="Gruppenname", channel="Textkanal", language="DeepL Sprachcode, z. B. DE, EN, EN-GB …")
+    @admins_only()
+    async def cmd_group_add(self, interaction: discord.Interaction, group: str, channel: discord.TextChannel,
+                            language: str):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
+
+        lang = _norm(language or "")
+        if lang not in SUPPORTED_TARGETS:
+            return await interaction.response.send_message(
+                f"❌ Ungültiger Sprachcode `{lang}`. Beispiele: DE, EN, EN-GB, EN-US, FR, ES, PT-BR, ZH …",
+                ephemeral=True)
+
+        groups = self._groups(interaction.guild.id)
+        if group not in groups:
+            groups[group] = {}
+
+        # speichere wie gehabt (Name oder ID – je nach deinem aktuellen Modell)
+        groups[group][channel.name] = lang
         self._save_guild(interaction.guild.id)
 
-        hint = "Hinweis: DeepL akzeptiert z. B. EN-GB/EN-US, PT-PT/PT-BR, ZH oder ZH-HANT."
         await interaction.response.send_message(
-            f"✅ Mapping gesetzt: {channel.mention} → `{lang}` (gespeichert)\n_{hint}_",
-            ephemeral=True
-        )
+            f"✅ Gruppe **{group}**: {channel.mention} → `{lang}` hinzugefügt.", ephemeral=True)
 
-    @cmd_set.autocomplete("language")
-    async def ac_language(self, interaction: discord.Interaction, current: str):
-        guild = interaction.guild
-        gid = guild.id if guild else 0
-        provider = self._provider(gid) if gid else "deepl"
+    @cmd_group_add.autocomplete("group")
+    async def ac_group_add(self, interaction: discord.Interaction, current: str):
+        if not interaction.guild:
+            return []
+        return self._group_choice_list(interaction.guild, current)
+
+    @cmd_group_add.autocomplete("language")
+    async def ac_group_lang(self, interaction: discord.Interaction, current: str):
+        # schicke die gleichen Vorschläge wie bei /set, nur ohne /set zu brauchen
+        provider = self._provider(interaction.guild.id) if interaction.guild else "deepl"
         targets = None
         if provider == "deepl" and DEEPL_TOKEN:
             try:
                 targets = await _deepl_targets()
             except Exception:
                 targets = None
-
         items = suggest_codes(current, targets)
         out = []
         for code, label in items:
@@ -578,107 +746,47 @@ class LangRelay(commands.Cog):
             out.append(app_commands.Choice(name=f"{label} — {code}", value=aliased))
         return out[:20]
 
-    @app_commands.command(name="langrelay_status", description="Zeigt Mappings, Provider & Optionen.")
+    @app_commands.command(name="langrelay_group_remove", description="Entfernt einen Channel aus einer Gruppe.")
     @admins_only()
-    async def cmd_status(self, interaction: discord.Interaction):
-        if not interaction.guild:
-            return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
-        await self._ensure_cache(interaction.guild)
-        mapping = self._mapping(interaction.guild.id)
-        provider = self._provider(interaction.guild.id)
-        opts = self._options(interaction.guild.id)
-
-        lines = [f"**Provider:** `{provider}`", "", "**Mappings:**"]
-        if mapping:
-            for ch_name, code in mapping.items():
-                ch = self._get_channel_by_name(interaction.guild.id, ch_name)
-                if ch:
-                    lines.append(f"• <#{ch.id}> → `{code}`")
-                else:
-                    lines.append(f"• `#{ch_name}` → `{code}` (❌ nicht gefunden)")
-        else:
-            lines.append("_keine Zuordnungen_")
-
-        lines.append("\n**Optionen:**")
-        lines.append(f"• replymode: `{'on' if opts.get('replymode') else 'off'}`")
-        lines.append(f"• thread_mirroring: `{'on' if opts.get('thread_mirroring') else 'off'}`")
-
-        desc = "\n".join(lines)
-        embed = discord.Embed(title="LangRelay – Status", description=desc)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-
-    # ---- Mapping-Komfort ----
-
-    @app_commands.command(name="langrelay_reload", description="Lädt die Channel-Liste neu (z. B. nach Umbenennen/Anlegen).")
-    @admins_only()
-    async def cmd_reload(self, interaction: discord.Interaction):
-        if not interaction.guild:
-            return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
-        await self._ensure_cache(interaction.guild)
-        await interaction.response.send_message("🔁 Channel-Cache aktualisiert.", ephemeral=True)
-
-    @app_commands.command(name="langrelay_remove", description="Entfernt die Zuordnung eines Channels (persistiert).")
-    @admins_only()
-    async def cmd_remove(self, interaction: discord.Interaction, channel: discord.TextChannel):
+    async def cmd_group_remove(self, interaction: discord.Interaction, group: str, channel: discord.TextChannel):
         if not interaction.guild:
             return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
 
-        await self._ensure_cache(interaction.guild)
-        mapping = self._mapping(interaction.guild.id)
-        if channel.name in mapping:
-            mapping.pop(channel.name, None)
-            self._save_guild(interaction.guild.id)
-            await interaction.response.send_message(f"🗑️ Entfernt: {channel.mention} (gespeichert)", ephemeral=True)
-        else:
-            await interaction.response.send_message(f"ℹ️ Für {channel.mention} war kein Mapping vorhanden.", ephemeral=True)
+        groups = self._groups(interaction.guild.id)
+        if group not in groups or channel.name not in groups[group]:
+            return await interaction.response.send_message("ℹ️ Eintrag nicht gefunden.", ephemeral=True)
 
-    @app_commands.command(name="langrelay_clear", description="Löscht alle Channel→Sprache-Zuordnungen dieser Guild.")
-    @admins_only()
-    async def cmd_clear(self, interaction: discord.Interaction):
-        if not interaction.guild:
-            return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
-        self.guild_config.setdefault(
-            interaction.guild.id,
-            {"mapping": {}, "provider": DEFAULT_PROVIDER, "options": {"replymode": False, "thread_mirroring": False}}
-        )
-        self.guild_config[interaction.guild.id]["mapping"] = {}
+        groups[group].pop(channel.name, None)
+        if not groups[group]:
+            groups.pop(group, None)
         self._save_guild(interaction.guild.id)
-        await interaction.response.send_message("🧹 Alle Mappings gelöscht (gespeichert).", ephemeral=True)
+        await interaction.response.send_message(f"🗑️ Aus Gruppe **{group}** entfernt: {channel.mention}",
+                                                ephemeral=True)
 
-    @app_commands.command(name="langrelay_help", description="Zeigt eine Übersicht aller LangRelay-Befehle.")
+    @cmd_group_remove.autocomplete("group")
+    async def ac_group_remove(self, interaction: discord.Interaction, current: str):
+        if not interaction.guild:
+            return []
+        return self._group_choice_list(interaction.guild, current)
+    @app_commands.command(name="langrelay_group_list", description="Listet alle Gruppen und Zuordnungen.")
     @admins_only()
-    async def cmd_help(self, interaction: discord.Interaction):
+    async def cmd_group_list(self, interaction: discord.Interaction):
         if not interaction.guild:
             return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
+        groups = self._groups(interaction.guild.id)
+        if not groups:
+            return await interaction.response.send_message("_Keine Gruppen definiert._", ephemeral=True)
+        lines = []
+        for gname, chans in groups.items():
+            lines.append(f"**{gname}**")
+            for ch, code in chans.items():
+                ch_obj = self._get_channel_by_name(interaction.guild.id, ch)
+                lines.append(f"• {(ch_obj.mention if ch_obj else '#'+ch)} → `{code}`")
+            lines.append("")
+        await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
-        desc = (
-            "**Konfiguration:**\n"
-            "• `/langrelay_set #channel <code>` — Sprache für Channel setzen\n"
-            "• `/langrelay_remove #channel` — Mapping eines Channels entfernen\n"
-            "• `/langrelay_clear` — Alle Mappings löschen\n"
-            "• `/langrelay_reload` — Channel-Liste neu laden\n\n"
-            "**Provider:**\n"
-            "• `/langrelay_provider <deepl|openai>` — Übersetzungsprovider umschalten\n\n"
-            "**Optionen:**\n"
-            "• `/langrelay_replymode <on|off>` — Reply-Kontext anhängen oder nicht\n"
-            "• `/langrelay_thread_mirroring <on|off>` — Threads spiegeln oder nicht\n\n"
-            "**Status:**\n"
-            "• `/langrelay_status` — Zeigt aktuelle Mappings, Provider & Optionen\n"
-            "• `/langrelay_help` — Diese Übersicht\n\n"
-            "_Alle Befehle können nur von Admins genutzt werden._"
-        )
-
-        embed = discord.Embed(
-            title="LangRelay – Hilfe",
-            description=desc,
-            color=discord.Color.blurple()
-        )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-
-
-    # ---- Provider-Switch ----
-
-    @app_commands.command(name="langrelay_provider", description="Setzt den Übersetzungsprovider (deepl oder openai) für diese Guild.")
+    # ---- Provider & Optionen ----
+    @app_commands.command(name="langrelay_provider", description="Setzt den Übersetzungsprovider (deepl|openai).")
     @app_commands.choices(provider=[
         app_commands.Choice(name="DeepL", value="deepl"),
         app_commands.Choice(name="OpenAI", value="openai"),
@@ -692,40 +800,28 @@ class LangRelay(commands.Cog):
             return await interaction.response.send_message("❌ DeepL ist nicht konfiguriert (DEEPL_TOKEN fehlt).", ephemeral=True)
         if choice == "openai" and not OPENAI_TOKEN:
             return await interaction.response.send_message("❌ OpenAI ist nicht konfiguriert (OPENAI_TOKEN fehlt).", ephemeral=True)
-
         self._set_provider(interaction.guild.id, choice)
         await interaction.response.send_message(f"✅ Provider gesetzt: `{choice}`", ephemeral=True)
 
-    # ---- Option-Toggles ----
-
     @app_commands.command(name="langrelay_replymode", description="Reply-Kontext an/aus (persistiert).")
-    @app_commands.choices(state=[
-        app_commands.Choice(name="on", value="on"),
-        app_commands.Choice(name="off", value="off"),
-    ])
+    @app_commands.choices(state=[app_commands.Choice(name="on", value="on"), app_commands.Choice(name="off", value="off")])
     @admins_only()
     async def cmd_replymode(self, interaction: discord.Interaction, state: app_commands.Choice[str]):
         if not interaction.guild:
             return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
-        opts = self._options(interaction.guild.id)
-        opts["replymode"] = (state.value == "on")
+        self._options(interaction.guild.id)["replymode"] = (state.value == "on")
         self._save_guild(interaction.guild.id)
         await interaction.response.send_message(f"✅ replymode: `{state.value}`", ephemeral=True)
 
     @app_commands.command(name="langrelay_thread_mirroring", description="Thread-Mirroring an/aus (persistiert).")
-    @app_commands.choices(state=[
-        app_commands.Choice(name="on", value="on"),
-        app_commands.Choice(name="off", value="off"),
-    ])
+    @app_commands.choices(state=[app_commands.Choice(name="on", value="on"), app_commands.Choice(name="off", value="off")])
     @admins_only()
     async def cmd_thread_mirroring(self, interaction: discord.Interaction, state: app_commands.Choice[str]):
         if not interaction.guild:
             return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
-        opts = self._options(interaction.guild.id)
-        opts["thread_mirroring"] = (state.value == "on")
+        self._options(interaction.guild.id)["thread_mirroring"] = (state.value == "on")
         self._save_guild(interaction.guild.id)
         await interaction.response.send_message(f"✅ thread_mirroring: `{state.value}`", ephemeral=True)
-
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(LangRelay(bot))

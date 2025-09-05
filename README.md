@@ -10,6 +10,12 @@ It mirrors and translates messages across language-specific channels, using **we
 - 🌐 **Cross-Channel Relay**  
   Messages in one channel are translated and mirrored into all other mapped channels.
 
+- 🧩 **Relay Groups** *(new)*  
+  Define multiple independent groups of channels (e.g., EU, LATAM). Messages relay only within the same group.
+
+- 🔌 **Power Switch** *(new)*  
+  Turn relaying on/off per server via a slash command.
+
 - 🕵️ **Invisible Posting**  
   Webhooks make mirrored messages look like they were sent by the original user (no BOT tag).
 
@@ -86,29 +92,36 @@ It mirrors and translates messages across language-specific channels, using **we
 
 ## 🔧 Commands (highlights)
 
-- `/langrelay_set channel:<#> language:<code>` – Map a channel to a language code (EN, DE, FR, ...).  
-- `/langrelay_status` – Show mappings, provider, and options.  
-- `/langrelay_provider <deepl|openai>` – Select translation provider.  
-- `/langrelay_replymode <on|off>` – Toggle reply context.  
-- `/langrelay_thread_mirroring <on|off>` – Toggle thread mirroring.  
-- `/langrelay_reload` – Reload channel cache after renaming/adding channels.  
-- `/langrelay_remove channel:<#>` – Remove mapping for a channel.  
-- `/langrelay_clear` – Remove all mappings.  
-- `/langrelay_help` – Show overview of all LangRelay commands.
-- `/langrelay_remove` / `/langrelay_clear` – Remove mappings.  
+- `/langrelay_status` – Show provider, groups, and options.  
+- `/langrelay_power state:<on|off>` – Enable/disable relaying for this server.  *(new)*  
+- `/langrelay_provider provider:<deepl|openai>` – Select translation provider.  
+- `/langrelay_replymode state:<on|off>` – Toggle reply context.  
+- `/langrelay_thread_mirroring state:<on|off>` – Toggle thread mirroring.  
+
+**Groups (new):**
+- `/langrelay_group_create name:<group>` – Create a relay group.  
+- `/langrelay_group_add group:<group> channel:<#> language:<code>` – Add a channel with a language code (e.g., `DE`, `EN`, `EN-GB`, `ES`, `PT-BR`, `ZH`).  
+- `/langrelay_group_remove group:<group> channel:<#>` – Remove a channel from a group.  
+- `/langrelay_group_list` – List all groups and mappings.  
+- `/langrelay_group_delete name:<group>` – Delete a group.  
+
+**Other:**
 - `/translate <text>` – Translate text manually.  
 - `/detect <text>` – Detect the language of a given text.  
 - `/languages` – List available translation languages.  
 - `/ping` – Check bot responsiveness.  
 - `/about` – Show bot info.
 
+> Removed legacy mapping commands: `/langrelay_set`, `/langrelay_remove`, `/langrelay_clear`, `/langrelay_reload`, `/langrelay_help`.
+
 ---
 
 ## 🛠️ Troubleshooting
 
-- **Nothing is mirrored** → Ensure channels are mapped with `/langrelay_status` and the bot has **Manage Webhooks**.  
+- **Nothing is mirrored** → Ensure groups are configured (`/langrelay_group_list`) and **Manage Webhooks** permission is granted.  
 - **Translation fails** → Verify API keys and provider choice.  
 - **Thread mirroring not working** → Check that the bot has **Create Public Threads** permission.  
+- **No relays at all** → Check that power is **on**: `/langrelay_power state:on`.  
 - **Mentions** → Mentions are sanitized to prevent cross-channel pings.  
 
 ---
@@ -117,7 +130,7 @@ It mirrors and translates messages across language-specific channels, using **we
 
 - **autotranslate.py** – Automatically translates incoming messages in a single channel.  
 - **translate.py** – Provides slash commands for manual translation, detection, and listing languages.  
-- **langrelay.py** – Core feature: cross-channel relay with translation, webhooks, thread mirroring.  
+- **langrelay.py** – Core feature: cross-channel relay with translation, webhooks, thread mirroring, groups, power.  
 - **info.py** – Displays bot information (`/about`).  
 - **ping.py** – Simple connectivity test (`/ping`).  
 

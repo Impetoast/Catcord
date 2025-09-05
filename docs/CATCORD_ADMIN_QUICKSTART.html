@@ -20,7 +20,7 @@
   .two { display:grid; grid-template-columns: 1fr 1fr; gap: 14px; }
   .note { background:#0f1724; border-left:3px solid var(--accent); padding:10px 12px; }
 </style>
-</head>
+<link href="catcord-docs-responsive.css" rel="stylesheet"/></head>
 <body>
 <div class="wrap">
 <h1>Catcord – Admin Quickstart</h1>
@@ -35,15 +35,17 @@
 <section class="two">
 <div>
 <h2>2) Map Channels</h2>
-<pre><code>/langrelay_set channel:#german  language:DE
-/langrelay_set channel:#english language:EN
-/langrelay_set channel:#french  language:FR</code></pre>
+<pre>/langrelay_group_create EU
+/langrelay_group_add EU #german DE
+/langrelay_group_add EU #english EN
+/langrelay_group_add EU #french FR
+/langrelay_group_list</pre>
 </div>
 <div>
 <h2>3) Choose Provider</h2>
-<pre><code>/langrelay_provider provider:deepl
+<pre>/langrelay_provider provider:deepl
 # or:
-/langrelay_provider provider:openai</code></pre>
+/langrelay_provider provider:openai</pre>
 </div>
 </section>
 <section class="two">
@@ -54,12 +56,12 @@
 </div>
 <div>
 <h2>5) Verify</h2>
-<pre><code>/langrelay_status</code></pre>
+<pre><code>/langrelay_status</code></pre><h2>6) Power (Global On/Off)</h2><pre>/langrelay_power state:off
+# later
+/langrelay_power state:on</pre>
 </div>
 </section>
 <section>
-
-
 </section>
 <section class="two">
 <div>

@@ -200,6 +200,10 @@ class LangRelay(commands.Cog):
         self._ensure_blocks(cfg)
         return cfg["options"]
 
+    # Helper: normalize language codes like "en_gb" -> "EN-GB"
+    def _norm(code: Optional[str]) -> Optional[str]:
+        return code.strip().upper().replace("_", "-") if code else None
+
     # -------------------- Caching / Semaphores --------------------
     def _sem(self, guild_id: int) -> asyncio.Semaphore:
         if guild_id not in self._sem_per_guild:
@@ -706,11 +710,8 @@ class LangRelay(commands.Cog):
         if not interaction.guild:
             return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
 
-        lang = _norm(language or "")
-        if lang not in SUPPORTED_TARGETS:
-            return await interaction.response.send_message(
-                f"❌ Ungültiger Sprachcode `{lang}`. Beispiele: DE, EN, EN-GB, EN-US, FR, ES, PT-BR, ZH …",
-                ephemeral=True)
+        lang = (language or "").strip().upper().replace("_", "-")
+        # keine SUPPORTED_TARGETS-Prüfung → akzeptiert z. B. EN-AU, EN-IN etc.
 
         groups = self._groups(interaction.guild.id)
         if group not in groups:

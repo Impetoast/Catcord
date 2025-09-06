@@ -6,7 +6,7 @@ import json
 import io
 import time
 import asyncio
-from typing import Dict, Optional, List, Any, Set
+from typing import Dict, Optional, List, Any, Set, Tuple
 from pathlib import Path
 
 import discord
@@ -37,6 +37,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 DEFAULT_PROVIDER = "openai" if OPENAI_TOKEN else ("deepl" if DEEPL_TOKEN else "openai")
 WEBHOOK_NAME = os.getenv("LANGRELAY_WEBHOOK_NAME", "Catcord")
 WEBHOOK_CACHE_SIZE = 64
+LINK_CACHE_SIZE = 10000
 
 # === Sprachlisten-Cache für DeepL (Targets) ===
 _DEEPL_LANG_CACHE = {"ts": 0.0, "targets": set()}
@@ -106,6 +107,7 @@ class LangRelay(commands.Cog):
         self._guild_channel_cache: Dict[int, Dict[str, discord.TextChannel]] = {}
         self._sem_per_guild: Dict[int, asyncio.Semaphore] = {}
         self._webhook_cache: Dict[int, Dict[int, discord.Webhook]] = {}
+        self._message_links: Dict[int, List[Tuple[int, int]]] = {}
 
     # -------------------- Persistence --------------------
     def _guild_path(self, guild_id: int) -> Path:
@@ -393,8 +395,8 @@ class LangRelay(commands.Cog):
         if thread:
             kwargs["thread"] = thread
         if "content" not in kwargs and "files" not in kwargs:
-            return
-        await webhook.send(**kwargs)
+            return None
+        return await webhook.send(wait=True, **kwargs)
 
     async def _safe_channel_send(
         self,
@@ -412,8 +414,8 @@ class LangRelay(commands.Cog):
         if files:
             kwargs["files"] = files
         if "content" not in kwargs and "files" not in kwargs:
-            return
-        await dest.send(**kwargs)
+            return None
+        return await dest.send(**kwargs)
 
     # -------------------- Thread-Hilfen --------------------
     async def _get_or_create_target_thread(
@@ -589,7 +591,7 @@ class LangRelay(commands.Cog):
                         dest = target_thread or _tgt
                         if not webhook:
                             try:
-                                await self._safe_channel_send(
+                                return await self._safe_channel_send(
                                     dest,
                                     content=out_text or None,
                                     files=files or None,
@@ -597,10 +599,10 @@ class LangRelay(commands.Cog):
                                 )
                             except Exception as e:
                                 print(f"⚠️ Nachricht in #{_tgt.name} konnte nicht gesendet werden: {e}")
-                            return
+                            return None
 
                         try:
-                            await self._safe_webhook_send(
+                            return await self._safe_webhook_send(
                                 webhook,
                                 content=out_text or None,
                                 files=files or None,
@@ -612,7 +614,7 @@ class LangRelay(commands.Cog):
                         except TypeError:
                             # ältere discord.py ohne thread=
                             try:
-                                await self._safe_channel_send(
+                                return await self._safe_channel_send(
                                     dest,
                                     content=out_text or None,
                                     files=files or None,
@@ -620,12 +622,91 @@ class LangRelay(commands.Cog):
                                 )
                             except Exception as e:
                                 print(f"⚠️ Webhook/Thread-Fallback in #{_tgt.name} fehlgeschlagen: {e}")
+                                return None
                         except Exception as e:
                             print(f"⚠️ Webhook-Senden in #{_tgt.name} fehlgeschlagen: {e}")
+                            return None
 
                     tasks.append(_one())
             if tasks:
-                await asyncio.gather(*tasks)
+                results = await asyncio.gather(*tasks)
+                dest_msgs = [m for m in results if isinstance(m, discord.Message)]
+                if dest_msgs:
+                    all_msgs = [message] + dest_msgs
+                    for m in all_msgs:
+                        others = [(o.channel.id, o.id) for o in all_msgs if o.id != m.id]
+                        self._message_links[m.id] = others
+                        while len(self._message_links) > LINK_CACHE_SIZE:
+                            first_key = next(iter(self._message_links))
+                            self._message_links.pop(first_key, None)
+
+    @commands.Cog.listener()
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        if payload.guild_id is None or payload.user_id == getattr(self.bot.user, "id", None):
+            return
+        links = self._message_links.get(payload.message_id)
+        if not links:
+            return
+        for channel_id, msg_id in links:
+            channel = self.bot.get_channel(channel_id)
+            if not channel:
+                continue
+            try:
+                msg = await channel.fetch_message(msg_id)
+                await msg.add_reaction(payload.emoji)
+            except Exception:
+                pass
+
+    @commands.Cog.listener()
+    async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
+        if payload.guild_id is None or payload.user_id == getattr(self.bot.user, "id", None):
+            return
+        links = self._message_links.get(payload.message_id)
+        if not links:
+            return
+        for channel_id, msg_id in links:
+            channel = self.bot.get_channel(channel_id)
+            if not channel:
+                continue
+            try:
+                msg = await channel.fetch_message(msg_id)
+                await msg.remove_reaction(payload.emoji, self.bot.user)
+            except Exception:
+                pass
+
+    @commands.Cog.listener()
+    async def on_raw_reaction_clear(self, payload: discord.RawReactionClearEvent):
+        if payload.guild_id is None:
+            return
+        links = self._message_links.get(payload.message_id)
+        if not links:
+            return
+        for channel_id, msg_id in links:
+            channel = self.bot.get_channel(channel_id)
+            if not channel:
+                continue
+            try:
+                msg = await channel.fetch_message(msg_id)
+                await msg.clear_reactions()
+            except Exception:
+                pass
+
+    @commands.Cog.listener()
+    async def on_raw_reaction_clear_emoji(self, payload: discord.RawReactionClearEmojiEvent):
+        if payload.guild_id is None:
+            return
+        links = self._message_links.get(payload.message_id)
+        if not links:
+            return
+        for channel_id, msg_id in links:
+            channel = self.bot.get_channel(channel_id)
+            if not channel:
+                continue
+            try:
+                msg = await channel.fetch_message(msg_id)
+                await msg.clear_reaction(payload.emoji)
+            except Exception:
+                pass
 
     # -------------------- Commands --------------------
 

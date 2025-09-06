@@ -30,11 +30,14 @@ It mirrors and translates messages across language-specific channels, using **we
 - 💬 **Reply Context**  
   Optionally append a translated line showing the original reply for clarity.
 
-- 📎 **Attachment Support**  
+- 📎 **Attachment Support**
   Files and images are re-uploaded along with translated messages.
 
-- 💾 **Persistent Configuration**  
+- 💾 **Persistent Configuration**
   Per-guild config is stored in `./data/langrelay/<guild_id>.json`.
+
+- 🔒 **Guild Restriction**
+  Optionally limit command execution to a specific guild via `GUILD_ID` in `.env`.
 
 ---
 
@@ -64,7 +67,10 @@ It mirrors and translates messages across language-specific channels, using **we
    DEEPL_TOKEN=your-deepl-key   # optional
    OPENAI_TOKEN=your-openai-key # optional
    LANGRELAY_WEBHOOK_NAME=Catcord
+   GUILD_ID=123456789012345678  # optional, restricts bot to this guild
    ```
+
+   If `GUILD_ID` is set, Catcord will only respond to commands in the specified guild.
 
 5. Run the bot:
    ```bash

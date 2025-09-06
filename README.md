@@ -13,8 +13,10 @@ It mirrors and translates messages across language-specific channels, using **we
 - 🧩 **Relay Groups** *(new)*  
   Define multiple independent groups of channels (e.g., EU, LATAM). Messages relay only within the same group.
 
-- 🔌 **Power Switch** *(new)*  
+- 🔌 **Power Switch** *(new)*
   Turn relaying on/off per server via a slash command.
+- 🔀 **Group Power** *(new)*
+  Enable or disable relaying for individual relay groups.
 
 - 🕵️ **Invisible Posting**  
   Webhooks make mirrored messages look like they were sent by the original user (no BOT tag).
@@ -101,9 +103,10 @@ It mirrors and translates messages across language-specific channels, using **we
 **Groups (new):**
 - `/langrelay_group_create name:<group>` – Create a relay group.  
 - `/langrelay_group_add group:<group> channel:<#> language:<code>` – Add a channel with a language code (e.g., `DE`, `EN`, `EN-GB`, `ES`, `PT-BR`, `ZH`).  
-- `/langrelay_group_remove group:<group> channel:<#>` – Remove a channel from a group.  
-- `/langrelay_group_list` – List all groups and mappings.  
-- `/langrelay_group_delete name:<group>` – Delete a group.  
+- `/langrelay_group_remove group:<group> channel:<#>` – Remove a channel from a group.
+- `/langrelay_group_list` – List all groups and mappings.
+- `/langrelay_group_delete name:<group>` – Delete a group.
+- `/langrelay_group_power group:<group> state:<on|off>` – Enable/disable relaying for a group.
 
 **Other:**
 - `/translate <text>` – Translate text manually.  

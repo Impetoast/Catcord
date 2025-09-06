@@ -1,10 +1,10 @@
-# Virtuelle Umgebung
+# Virtual environment
 venv/
 
 # User Configs
 data/
 
-# Geheimnisse
+# Secrets
 .env
 
 # Bytecode / Cache
@@ -16,6 +16,6 @@ __pycache__/
 # Logs
 *.log
 
-# Sonstiges
+# Miscellaneous
 .DS_Store
 Thumbs.db

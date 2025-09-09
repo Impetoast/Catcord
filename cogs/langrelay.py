@@ -128,20 +128,39 @@ class LangRelay(commands.Cog):
         groups = cfg.get("groups")
         if not isinstance(groups, dict):
             groups = {}
+            cfg["groups"] = groups
+        gopt = cfg.get("group_options")
+        if not isinstance(gopt, dict):
+            gopt = {}
+            cfg["group_options"] = gopt
+
+        # migrate legacy formats
         legacy = cfg.get("mapping")
         if isinstance(legacy, dict) and legacy:
             groups.setdefault("default", {})
             groups["default"].update({str(k): str(v) for k, v in legacy.items()})
             cfg.pop("mapping", None)
-        cfg["groups"] = {
-            str(g): {str(ch): str(code) for ch, code in (channels or {}).items()}
-            for g, channels in groups.items()
+
+        # some previous versions mis-saved group entries as booleans in the
+        # `groups` dict. Move such flags to `group_options` so real mappings
+        # remain in `groups`.
+        for gname, val in list(groups.items()):
+            if isinstance(val, bool):
+                gopt[gname] = bool(val)
+                groups.pop(gname, None)
+
+        # sanitize groups in-place
+        new_groups = {
+            str(g): {str(ch): str(code) for ch, code in channels.items()}
+            for g, channels in groups.items() if isinstance(channels, dict)
         }
+        groups.clear()
+        groups.update(new_groups)
+
         # group options
-        gopt = cfg.get("group_options")
-        if not isinstance(gopt, dict):
-            gopt = {}
-        cfg["group_options"] = {str(g): bool(v) for g, v in gopt.items()}
+        new_opts = {str(g): bool(v) for g, v in gopt.items()}
+        gopt.clear()
+        gopt.update(new_opts)
         # provider
         prov = cfg.get("provider")
         cfg["provider"] = prov if prov in {"deepl", "openai"} else DEFAULT_PROVIDER
@@ -186,12 +205,14 @@ class LangRelay(commands.Cog):
         return [app_commands.Choice(name=g, value=g) for g in keys][:25]
 
     def _groups(self, guild_id: int) -> Dict[str, Dict[str, str]]:
-        return self.guild_config.setdefault(guild_id, {
+        cfg = self.guild_config.setdefault(guild_id, {
             "provider": DEFAULT_PROVIDER,
             "options": {"enabled": True, "replymode": False, "thread_mirroring": False, "reaction_mirroring": False},
             "groups": {},
             "group_options": {},
-        })["groups"]
+        })
+        self._ensure_blocks(cfg)
+        return cfg["groups"]
 
     def _provider(self, guild_id: int) -> str:
         return self.guild_config.setdefault(guild_id, {

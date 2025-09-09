@@ -69,7 +69,9 @@ def admins_only():
             raise app_commands.CheckFailure("Nur in Servern verfügbar.")
         if interaction.user.guild_permissions.administrator:
             return True
-        raise app_commands.CheckFailure("Nur Administratoren dürfen diesen Befehl ausführen.")
+        if any(role.name.lower() == "moderator" for role in interaction.user.roles):
+            return True
+        raise app_commands.CheckFailure("Nur Administratoren oder Moderatoren dürfen diesen Befehl ausführen.")
     return app_commands.check(predicate)
 
 

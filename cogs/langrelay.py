@@ -6,7 +6,7 @@ import json
 import io
 import time
 import asyncio
-from typing import Dict, Optional, List, Any, Set
+from typing import Dict, Optional, List, Any, Set, Tuple
 from pathlib import Path
 
 import discord
@@ -92,7 +92,7 @@ class LangRelay(commands.Cog):
     Struktur (vereinfacht):
     {
       "provider": "deepl|openai",
-      "options": {"enabled": true, "replymode": false, "thread_mirroring": false},
+      "options": {"enabled": true, "replymode": false, "thread_mirroring": false, "reaction_mirroring": false},
       "groups": {
         "default": {"🇩🇪-german": "DE", "🇺🇸-english": "EN"},
         "americas": {"spanish": "ES", "english-us": "EN-US"}
@@ -108,6 +108,8 @@ class LangRelay(commands.Cog):
         self._guild_channel_cache: Dict[int, Dict[str, discord.TextChannel]] = {}
         self._sem_per_guild: Dict[int, asyncio.Semaphore] = {}
         self._webhook_cache: Dict[int, Dict[int, discord.Webhook]] = {}
+        self._relay_map: Dict[int, Dict[int, int]] = {}
+        self._relay_lookup: Dict[int, int] = {}
 
     # -------------------- Persistence --------------------
     def _guild_path(self, guild_id: int) -> Path:
@@ -120,6 +122,7 @@ class LangRelay(commands.Cog):
             "enabled": bool(opt.get("enabled", True)),
             "replymode": bool(opt.get("replymode", False)),
             "thread_mirroring": bool(opt.get("thread_mirroring", False)),
+            "reaction_mirroring": bool(opt.get("reaction_mirroring", False)),
         }
         # groups (Migration altes mapping -> default)
         groups = cfg.get("groups")
@@ -154,7 +157,7 @@ class LangRelay(commands.Cog):
         self._ensure_blocks(data)
         self.guild_config[guild.id] = {
             "provider": data.get("provider", DEFAULT_PROVIDER),
-            "options": data.get("options", {"enabled": True, "replymode": False, "thread_mirroring": False}),
+            "options": data.get("options", {"enabled": True, "replymode": False, "thread_mirroring": False, "reaction_mirroring": False}),
             "groups": data.get("groups", {}),
             "group_options": data.get("group_options", {}),
         }
@@ -163,7 +166,7 @@ class LangRelay(commands.Cog):
     def _save_guild(self, guild_id: int):
         cfg = self.guild_config.setdefault(guild_id, {
             "provider": DEFAULT_PROVIDER,
-            "options": {"enabled": True, "replymode": False, "thread_mirroring": False},
+            "options": {"enabled": True, "replymode": False, "thread_mirroring": False, "reaction_mirroring": False},
             "groups": {},
             "group_options": {},
         })
@@ -185,7 +188,7 @@ class LangRelay(commands.Cog):
     def _groups(self, guild_id: int) -> Dict[str, Dict[str, str]]:
         return self.guild_config.setdefault(guild_id, {
             "provider": DEFAULT_PROVIDER,
-            "options": {"enabled": True, "replymode": False, "thread_mirroring": False},
+            "options": {"enabled": True, "replymode": False, "thread_mirroring": False, "reaction_mirroring": False},
             "groups": {},
             "group_options": {},
         })["groups"]
@@ -193,7 +196,7 @@ class LangRelay(commands.Cog):
     def _provider(self, guild_id: int) -> str:
         return self.guild_config.setdefault(guild_id, {
             "provider": DEFAULT_PROVIDER,
-            "options": {"enabled": True, "replymode": False, "thread_mirroring": False},
+            "options": {"enabled": True, "replymode": False, "thread_mirroring": False, "reaction_mirroring": False},
             "groups": {},
             "group_options": {},
         })["provider"]
@@ -205,7 +208,7 @@ class LangRelay(commands.Cog):
     def _options(self, guild_id: int) -> Dict[str, bool]:
         cfg = self.guild_config.setdefault(guild_id, {
             "provider": DEFAULT_PROVIDER,
-            "options": {"enabled": True, "replymode": False, "thread_mirroring": False},
+            "options": {"enabled": True, "replymode": False, "thread_mirroring": False, "reaction_mirroring": False},
             "groups": {},
             "group_options": {},
         })
@@ -215,7 +218,7 @@ class LangRelay(commands.Cog):
     def _group_options(self, guild_id: int) -> Dict[str, bool]:
         cfg = self.guild_config.setdefault(guild_id, {
             "provider": DEFAULT_PROVIDER,
-            "options": {"enabled": True, "replymode": False, "thread_mirroring": False},
+            "options": {"enabled": True, "replymode": False, "thread_mirroring": False, "reaction_mirroring": False},
             "groups": {},
             "group_options": {},
         })
@@ -415,8 +418,8 @@ class LangRelay(commands.Cog):
         if thread:
             kwargs["thread"] = thread
         if "content" not in kwargs and "files" not in kwargs:
-            return
-        await webhook.send(**kwargs)
+            return None
+        return await webhook.send(wait=True, **kwargs)
 
     async def _safe_channel_send(
         self,
@@ -434,8 +437,8 @@ class LangRelay(commands.Cog):
         if files:
             kwargs["files"] = files
         if "content" not in kwargs and "files" not in kwargs:
-            return
-        await dest.send(**kwargs)
+            return None
+        return await dest.send(**kwargs)
 
     # -------------------- Thread-Hilfen --------------------
     async def _get_or_create_target_thread(
@@ -545,6 +548,7 @@ class LangRelay(commands.Cog):
         async with self._sem(guild.id):
             sent_to: Set[int] = set()
             tasks = []
+            links: List[Tuple[int, int]] = [(message.channel.id, message.id)]
             for gname in src_groups:
                 chans = groups.get(gname, {})
                 src_lang = chans.get(src_channel.name)
@@ -599,9 +603,10 @@ class LangRelay(commands.Cog):
 
                         webhook = await self._get_or_create_webhook(_tgt)
                         dest = target_thread or _tgt
+                        sent_msg: Optional[discord.Message] = None
                         if not webhook:
                             try:
-                                await self._safe_channel_send(
+                                sent_msg = await self._safe_channel_send(
                                     dest,
                                     content=out_text or None,
                                     files=files or None,
@@ -609,10 +614,13 @@ class LangRelay(commands.Cog):
                                 )
                             except Exception as e:
                                 print(f"⚠️ Nachricht in #{_tgt.name} konnte nicht gesendet werden: {e}")
+                            else:
+                                if sent_msg:
+                                    links.append((dest.id, sent_msg.id))
                             return
 
                         try:
-                            await self._safe_webhook_send(
+                            sent_msg = await self._safe_webhook_send(
                                 webhook,
                                 content=out_text or None,
                                 files=files or None,
@@ -624,7 +632,7 @@ class LangRelay(commands.Cog):
                         except TypeError:
                             # ältere discord.py ohne thread=
                             try:
-                                await self._safe_channel_send(
+                                sent_msg = await self._safe_channel_send(
                                     dest,
                                     content=out_text or None,
                                     files=files or None,
@@ -634,10 +642,56 @@ class LangRelay(commands.Cog):
                                 print(f"⚠️ Webhook/Thread-Fallback in #{_tgt.name} fehlgeschlagen: {e}")
                         except Exception as e:
                             print(f"⚠️ Webhook-Senden in #{_tgt.name} fehlgeschlagen: {e}")
+                        if sent_msg:
+                            links.append((dest.id, sent_msg.id))
 
                     tasks.append(_one())
             if tasks:
                 await asyncio.gather(*tasks)
+                if len(links) > 1:
+                    self._relay_map[message.id] = {ch: mid for ch, mid in links}
+                    for ch, mid in links:
+                        self._relay_lookup[mid] = message.id
+
+    async def _mirror_reaction(self, payload: discord.RawReactionActionEvent, adding: bool):
+        if payload.user_id == self.bot.user.id:
+            return
+        if not payload.guild_id or not self._options(payload.guild_id).get("reaction_mirroring"):
+            return
+        root_id = self._relay_lookup.get(payload.message_id)
+        if not root_id:
+            return
+        channel_map = self._relay_map.get(root_id)
+        if not channel_map:
+            return
+        for ch_id, msg_id in channel_map.items():
+            if ch_id == payload.channel_id and msg_id == payload.message_id:
+                continue
+            channel = self.bot.get_channel(ch_id)
+            if channel is None:
+                try:
+                    channel = await self.bot.fetch_channel(ch_id)
+                except Exception:
+                    continue
+            try:
+                msg = await channel.fetch_message(msg_id)
+            except Exception:
+                continue
+            try:
+                if adding:
+                    await msg.add_reaction(payload.emoji)
+                else:
+                    await msg.remove_reaction(payload.emoji, self.bot.user)
+            except Exception:
+                pass
+
+    @commands.Cog.listener()
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        await self._mirror_reaction(payload, True)
+
+    @commands.Cog.listener()
+    async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
+        await self._mirror_reaction(payload, False)
 
     # -------------------- Commands --------------------
 
@@ -667,6 +721,7 @@ class LangRelay(commands.Cog):
         lines.append(f"• power: `{'on' if opts.get('enabled', True) else 'off'}`")
         lines.append(f"• replymode: `{'on' if opts.get('replymode') else 'off'}`")
         lines.append(f"• thread_mirroring: `{'on' if opts.get('thread_mirroring') else 'off'}`")
+        lines.append(f"• reaction_mirroring: `{'on' if opts.get('reaction_mirroring') else 'off'}`")
         embed = discord.Embed(title="LangRelay – Status", description="\n".join(lines))
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
@@ -871,6 +926,16 @@ class LangRelay(commands.Cog):
         self._options(interaction.guild.id)["thread_mirroring"] = (state.value == "on")
         self._save_guild(interaction.guild.id)
         await interaction.response.send_message(f"✅ thread_mirroring: `{state.value}`", ephemeral=True)
+
+    @app_commands.command(name="langrelay_reaction_mirroring", description="Reaktions-Mirroring an/aus (persistiert).")
+    @app_commands.choices(state=[app_commands.Choice(name="on", value="on"), app_commands.Choice(name="off", value="off")])
+    @admins_only()
+    async def cmd_reaction_mirroring(self, interaction: discord.Interaction, state: app_commands.Choice[str]):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
+        self._options(interaction.guild.id)["reaction_mirroring"] = (state.value == "on")
+        self._save_guild(interaction.guild.id)
+        await interaction.response.send_message(f"✅ reaction_mirroring: `{state.value}`", ephemeral=True)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(LangRelay(bot))

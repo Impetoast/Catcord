@@ -134,6 +134,11 @@ class LangRelay(commands.Cog):
             str(g): {str(ch): str(code) for ch, code in (channels or {}).items()}
             for g, channels in groups.items()
         }
+        # group options
+        gopt = cfg.get("group_options")
+        if not isinstance(gopt, dict):
+            gopt = {}
+        cfg["group_options"] = {str(g): bool(v) for g, v in gopt.items()}
         # provider
         prov = cfg.get("provider")
         cfg["provider"] = prov if prov in {"deepl", "openai"} else DEFAULT_PROVIDER
@@ -151,6 +156,7 @@ class LangRelay(commands.Cog):
             "provider": data.get("provider", DEFAULT_PROVIDER),
             "options": data.get("options", {"enabled": True, "replymode": False, "thread_mirroring": False}),
             "groups": data.get("groups", {}),
+            "group_options": data.get("group_options", {}),
         }
         self._save_guild(guild.id)
 
@@ -159,6 +165,7 @@ class LangRelay(commands.Cog):
             "provider": DEFAULT_PROVIDER,
             "options": {"enabled": True, "replymode": False, "thread_mirroring": False},
             "groups": {},
+            "group_options": {},
         })
         self._ensure_blocks(cfg)
         try:
@@ -180,6 +187,7 @@ class LangRelay(commands.Cog):
             "provider": DEFAULT_PROVIDER,
             "options": {"enabled": True, "replymode": False, "thread_mirroring": False},
             "groups": {},
+            "group_options": {},
         })["groups"]
 
     def _provider(self, guild_id: int) -> str:
@@ -187,6 +195,7 @@ class LangRelay(commands.Cog):
             "provider": DEFAULT_PROVIDER,
             "options": {"enabled": True, "replymode": False, "thread_mirroring": False},
             "groups": {},
+            "group_options": {},
         })["provider"]
 
     def _set_provider(self, guild_id: int, provider: str):
@@ -198,9 +207,20 @@ class LangRelay(commands.Cog):
             "provider": DEFAULT_PROVIDER,
             "options": {"enabled": True, "replymode": False, "thread_mirroring": False},
             "groups": {},
+            "group_options": {},
         })
         self._ensure_blocks(cfg)
         return cfg["options"]
+
+    def _group_options(self, guild_id: int) -> Dict[str, bool]:
+        cfg = self.guild_config.setdefault(guild_id, {
+            "provider": DEFAULT_PROVIDER,
+            "options": {"enabled": True, "replymode": False, "thread_mirroring": False},
+            "groups": {},
+            "group_options": {},
+        })
+        self._ensure_blocks(cfg)
+        return cfg["group_options"]
 
     # Helper: normalize language codes like "en_gb" -> "EN-GB"
     def _norm(code: Optional[str]) -> Optional[str]:
@@ -451,20 +471,6 @@ class LangRelay(commands.Cog):
             print(f"⚠️ Thread-Erstellung in #{base_channel.name} fehlgeschlagen: {e}")
             return None
 
-    # ---- Power (On/Off) ----
-    @app_commands.command(name="langrelay_power", description="Schaltet das Relaying serverweit an/aus.")
-    @app_commands.choices(state=[app_commands.Choice(name="on", value="on"),
-                                 app_commands.Choice(name="off", value="off")])
-    @admins_only()
-    async def cmd_power(self, interaction: discord.Interaction, state: app_commands.Choice[str]):
-        if not interaction.guild:
-            return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
-        opts = self._options(interaction.guild.id)
-        opts["enabled"] = (state.value == "on")
-        self._save_guild(interaction.guild.id)
-        await interaction.response.send_message(f"🔌 LangRelay is now **{state.value.upper()}**.", ephemeral=True)
-
-
     # -------------------- Listeners --------------------
     @commands.Cog.listener()
     async def on_ready(self):
@@ -500,6 +506,7 @@ class LangRelay(commands.Cog):
         guild = message.guild
         await self._ensure_cache(guild)
         groups = self._groups(guild.id)
+        gopts = self._group_options(guild.id)
         opts = self._options(guild.id)
 
         if not opts.get("enabled", True):
@@ -520,7 +527,10 @@ class LangRelay(commands.Cog):
             src_channel = message.channel
 
         # Alle Gruppen finden, in denen der Quellkanal Mitglied ist
-        src_groups: List[str] = [gname for gname, chans in groups.items() if src_channel.name in chans]
+        src_groups: List[str] = [
+            gname for gname, chans in groups.items()
+            if src_channel.name in chans and gopts.get(gname, True)
+        ]
         if not src_groups:
             return  # kein Relay-Channel
 
@@ -640,13 +650,15 @@ class LangRelay(commands.Cog):
         provider = self._provider(interaction.guild.id)
         opts = self._options(interaction.guild.id)
         groups = self._groups(interaction.guild.id)
+        gopts = self._group_options(interaction.guild.id)
 
         lines = [f"**Provider:** `{provider}`", "", "**Gruppen:**"]
         if not groups:
             lines.append("_keine definiert_ (nutze /langrelay_group_create)\n")
         else:
             for gname, chans in groups.items():
-                lines.append(f"• **{gname}**:")
+                state = "on" if gopts.get(gname, True) else "off"
+                lines.append(f"• **{gname}** (`{state}`):")
                 for ch_name, code in chans.items():
                     ch_obj = self._get_channel_by_name(interaction.guild.id, ch_name)
                     lines.append(f"  - {(f'<#{ch_obj.id}>' if ch_obj else f'#{ch_name}') } → `{code}`")
@@ -658,18 +670,28 @@ class LangRelay(commands.Cog):
         embed = discord.Embed(title="LangRelay – Status", description="\n".join(lines))
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    # ---- Power (On/Off) ----
-    @app_commands.command(name="langrelay_power", description="Schaltet das Relaying serverweit an/aus.")
+    @app_commands.command(name="langrelay_group_power", description="Schaltet das Relaying für eine Gruppe an/aus.")
     @app_commands.choices(state=[app_commands.Choice(name="on", value="on"),
                                  app_commands.Choice(name="off", value="off")])
     @admins_only()
-    async def cmd_power(self, interaction: discord.Interaction, state: app_commands.Choice[str]):
+    async def cmd_group_power(self, interaction: discord.Interaction, group: str, state: app_commands.Choice[str]):
         if not interaction.guild:
             return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
-        opts = self._options(interaction.guild.id)
-        opts["enabled"] = (state.value == "on")
+        groups = self._groups(interaction.guild.id)
+        if group not in groups:
+            return await interaction.response.send_message(f"ℹ️ Gruppe **{group}** nicht gefunden.", ephemeral=True)
+        gopts = self._group_options(interaction.guild.id)
+        gopts[group] = (state.value == "on")
         self._save_guild(interaction.guild.id)
-        await interaction.response.send_message(f"🔌 LangRelay is now **{state.value.upper()}**.", ephemeral=True)
+        await interaction.response.send_message(
+            f"🔌 Gruppe **{group}** ist jetzt **{state.value.upper()}**.", ephemeral=True
+        )
+
+    @cmd_group_power.autocomplete("group")
+    async def ac_group_power(self, interaction: discord.Interaction, current: str):
+        if not interaction.guild:
+            return []
+        return self._group_choice_list(interaction.guild, current)
 
     # ---- Gruppen-Management ----
     @app_commands.command(name="langrelay_group_create", description="Erstellt eine neue Relay-Gruppe.")
@@ -679,9 +701,11 @@ class LangRelay(commands.Cog):
             return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
         name = name.strip()
         groups = self._groups(interaction.guild.id)
+        gopts = self._group_options(interaction.guild.id)
         if name in groups:
             return await interaction.response.send_message(f"ℹ️ Gruppe **{name}** existiert bereits.", ephemeral=True)
         groups[name] = {}
+        gopts[name] = True
         self._save_guild(interaction.guild.id)
         await interaction.response.send_message(f"✅ Gruppe **{name}** erstellt.", ephemeral=True)
 
@@ -692,10 +716,12 @@ class LangRelay(commands.Cog):
             return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
 
         groups = self._groups(interaction.guild.id)
+        gopts = self._group_options(interaction.guild.id)
         if group not in groups:
             return await interaction.response.send_message(f"ℹ️ Gruppe **{group}** nicht gefunden.", ephemeral=True)
 
         groups.pop(group, None)
+        gopts.pop(group, None)
         self._save_guild(interaction.guild.id)
         await interaction.response.send_message(f"🗑️ Gruppe **{group}** gelöscht.", ephemeral=True)
 
@@ -716,8 +742,10 @@ class LangRelay(commands.Cog):
         # keine SUPPORTED_TARGETS-Prüfung → akzeptiert z. B. EN-AU, EN-IN etc.
 
         groups = self._groups(interaction.guild.id)
+        gopts = self._group_options(interaction.guild.id)
         if group not in groups:
             groups[group] = {}
+        gopts.setdefault(group, True)
 
         # speichere wie gehabt (Name oder ID – je nach deinem aktuellen Modell)
         groups[group][channel.name] = lang
@@ -756,12 +784,14 @@ class LangRelay(commands.Cog):
             return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
 
         groups = self._groups(interaction.guild.id)
+        gopts = self._group_options(interaction.guild.id)
         if group not in groups or channel.name not in groups[group]:
             return await interaction.response.send_message("ℹ️ Eintrag nicht gefunden.", ephemeral=True)
 
         groups[group].pop(channel.name, None)
         if not groups[group]:
             groups.pop(group, None)
+            gopts.pop(group, None)
         self._save_guild(interaction.guild.id)
         await interaction.response.send_message(f"🗑️ Aus Gruppe **{group}** entfernt: {channel.mention}",
                                                 ephemeral=True)
@@ -777,11 +807,13 @@ class LangRelay(commands.Cog):
         if not interaction.guild:
             return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
         groups = self._groups(interaction.guild.id)
+        gopts = self._group_options(interaction.guild.id)
         if not groups:
             return await interaction.response.send_message("_Keine Gruppen definiert._", ephemeral=True)
         lines = []
         for gname, chans in groups.items():
-            lines.append(f"**{gname}**")
+            state = "on" if gopts.get(gname, True) else "off"
+            lines.append(f"**{gname}** (`{state}`)")
             for ch, code in chans.items():
                 ch_obj = self._get_channel_by_name(interaction.guild.id, ch)
                 lines.append(f"• {(ch_obj.mention if ch_obj else '#'+ch)} → `{code}`")
@@ -789,6 +821,20 @@ class LangRelay(commands.Cog):
         await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
     # ---- Provider & Optionen ----
+    @app_commands.command(name="langrelay_power", description="Schaltet das Relaying serverweit an/aus.")
+    @app_commands.choices(state=[app_commands.Choice(name="on", value="on"),
+                                 app_commands.Choice(name="off", value="off")])
+    @admins_only()
+    async def cmd_power(self, interaction: discord.Interaction, state: app_commands.Choice[str]):
+        if not interaction.guild:
+            return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
+        opts = self._options(interaction.guild.id)
+        opts["enabled"] = (state.value == "on")
+        self._save_guild(interaction.guild.id)
+        await interaction.response.send_message(
+            f"🔌 LangRelay is now **{state.value.upper()}**.", ephemeral=True
+        )
+
     @app_commands.command(name="langrelay_provider", description="Setzt den Übersetzungsprovider (deepl|openai).")
     @app_commands.choices(provider=[
         app_commands.Choice(name="DeepL", value="deepl"),

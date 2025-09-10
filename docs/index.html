@@ -81,7 +81,13 @@ a:hover {
     <h1>📚 Catcord Documentation</h1>
     <p class="lead">Guides and manuals for using and administering Catcord.</p>
 
-    
+    <div id="auth">
+      <button id="login">Login with Discord</button>
+      <button id="subscribe">Subscribe</button>
+      <p id="status"></p>
+    </div>
+
+
     <div class="card-grid">
       <div class="card">
         <h3>Admin Guide</h3>
@@ -106,4 +112,36 @@ a:hover {
     </div>
   </div>
 </body>
+<script>
+async function loadStatus() {
+  const status = document.getElementById('status');
+  try {
+    const res = await fetch('/session');
+    const data = await res.json();
+    if (!data.authenticated) {
+      status.textContent = 'Not logged in.';
+      return;
+    }
+    status.textContent = `Logged in as ${data.username}`;
+    const subRes = await fetch(`/api/subscription/${data.discord_id}`);
+    if (subRes.ok) {
+      const sub = await subRes.json();
+      status.textContent += ` – Plan: ${sub.plan}`;
+    }
+  } catch (e) {
+    status.textContent = 'Error loading session.';
+  }
+}
+document.getElementById('login').onclick = () => {
+  window.location.href = '/auth/discord';
+};
+document.getElementById('subscribe').onclick = async () => {
+  const res = await fetch('/checkout', {method: 'POST'});
+  const data = await res.json();
+  if (data.url) {
+    window.location.href = data.url;
+  }
+};
+loadStatus();
+</script>
 </html>

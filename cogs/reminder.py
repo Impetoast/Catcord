@@ -57,7 +57,7 @@ class Reminder(commands.Cog):
                 info.get("weekday"),
                 info.get("hour"),
                 info.get("minute"),
-                info.get("last", time.time()),
+                info.get("last"),
             )
 
     def cog_unload(self) -> None:
@@ -100,6 +100,9 @@ class Reminder(commands.Cog):
 
         loop = tasks.loop(seconds=60)(send_reminder)
         loop.start()
+        default_last = (
+            0.0 if any(v is not None for v in (weekday, hour, minute)) else time.time()
+        )
         self.reminders[name] = {
             "interval": interval,
             "unit": unit,
@@ -109,7 +112,7 @@ class Reminder(commands.Cog):
             "channel_id": channel_id,
             "message": message,
             "task": loop,
-            "last": last if last is not None else time.time(),
+            "last": last if last is not None else default_last,
         }
         self.save_reminders()
 

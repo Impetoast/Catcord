@@ -133,12 +133,13 @@ Use `/reminder` commands to schedule repeating messages.
 **Syntax**
 
 ```
-/reminder add name:<id> interval:<number> unit:<minutes|hours|days> channel:<#channel> message:<text> [weekday:<day>] [time:<HH:MM>]
+/reminder add name:<id> channel:<#channel> message:<text> [interval:<number> unit:<minutes|hours|days>] [weekday:<day>] [time:<HH:MM>]
 ```
 
 **Examples**
 
-- `/reminder add name:backup interval:1 unit:days channel:#general message:"Run backup" time:02:00`
+- `/reminder add name:backup channel:#general message:"Run backup" time:02:00`
+- `/reminder add name:standup channel:#dev message:"Daily standup" interval:1 unit:days time:09:00`
 - `/reminder remove name:backup`
 - `/reminder list`
 

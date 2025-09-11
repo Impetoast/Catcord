@@ -165,14 +165,38 @@ class Reminder(commands.Cog):
         }
         self.save_reminders()
 
+    @staticmethod
+    def _resolve_interval(
+        interval: int | None,
+        unit: str | None,
+        weekday: int | None,
+        has_time: bool,
+    ) -> tuple[int, str]:
+        """Determine final interval/unit values.
+
+        If both ``interval`` and ``unit`` are provided, they are used directly.
+        If neither is provided but ``weekday`` or ``has_time`` is given, sensible
+        defaults are returned (weekly or daily).  Otherwise a ``ValueError`` is
+        raised.
+        """
+
+        if interval is None and unit is None:
+            if weekday is not None or has_time:
+                # default to weekly when weekday specified, otherwise daily
+                return (7 if weekday is not None else 1, "days")
+            raise ValueError("interval and unit required without time/weekday")
+        if interval is None or unit is None:
+            raise ValueError("interval and unit must be given together")
+        return (interval, unit)
+
     @reminder.command(name="add", description="Add a repeating reminder.")
     @app_commands.describe(
         name="Name for the reminder",
-        interval="Interval amount",
-        unit="Interval unit",
-        weekday="Optional day of week",
         channel="Channel to post in",
         message="Reminder message",
+        interval="Optional interval amount",
+        unit="Optional interval unit",
+        weekday="Optional day of week",
         time="Optional time of day HH:MM",
     )
     @app_commands.choices(
@@ -195,15 +219,17 @@ class Reminder(commands.Cog):
         self,
         interaction: discord.Interaction,
         name: str,
-        interval: int,
-        unit: app_commands.Choice[str],
         channel: discord.TextChannel,
         message: str,
+        interval: int | None = None,
+        unit: app_commands.Choice[str] | None = None,
         weekday: app_commands.Choice[int] | None = None,
         time: str | None = None,
     ) -> None:
         if name in self.reminders:
-            await interaction.response.send_message(f"Reminder `{name}` exists.", ephemeral=True)
+            await interaction.response.send_message(
+                f"Reminder `{name}` exists.", ephemeral=True
+            )
             return
         hour = minute = None
         if time:
@@ -211,19 +237,35 @@ class Reminder(commands.Cog):
                 parsed = datetime.strptime(time, "%H:%M")
                 hour, minute = parsed.hour, parsed.minute
             except ValueError:
-                await interaction.response.send_message("Invalid time format; use HH:MM.", ephemeral=True)
+                await interaction.response.send_message(
+                    "Invalid time format; use HH:MM.", ephemeral=True
+                )
                 return
+
+        try:
+            interval_value, unit_value = self._resolve_interval(
+                interval,
+                unit.value if unit else None,
+                weekday.value if weekday else None,
+                bool(time),
+            )
+        except ValueError as e:
+            await interaction.response.send_message(str(e), ephemeral=True)
+            return
+
         self.create_reminder(
             name,
-            interval,
-            unit.value,
+            interval_value,
+            unit_value,
             channel.id,
             message,
             weekday.value if weekday else None,
             hour,
             minute,
         )
-        await interaction.response.send_message(f"Reminder `{name}` added.", ephemeral=True)
+        await interaction.response.send_message(
+            f"Reminder `{name}` added.", ephemeral=True
+        )
 
     @reminder.command(name="remove", description="Remove a reminder.")
     @app_commands.describe(name="Reminder to remove")

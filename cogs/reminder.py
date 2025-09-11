@@ -43,6 +43,10 @@ class Reminder(commands.Cog):
         for name, info in data.items():
             self.create_reminder(name, info["interval"], info["channel_id"], info["message"])
 
+    def cog_unload(self) -> None:
+        for info in self.reminders.values():
+            info["task"].cancel()
+
     def create_reminder(self, name: str, interval: int, channel_id: int, message: str) -> None:
         async def send_reminder():
             await self.bot.wait_until_ready()

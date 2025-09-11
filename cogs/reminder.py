@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 from datetime import datetime
+
 from pathlib import Path
 
 import discord
@@ -33,6 +34,7 @@ class Reminder(commands.Cog):
                 "channel_id": info["channel_id"],
                 "message": info["message"],
                 "last": info["last"],
+
             }
             for name, info in self.reminders.items()
         }
@@ -59,6 +61,7 @@ class Reminder(commands.Cog):
                 info.get("minute"),
                 info.get("last"),
             )
+
 
     def cog_unload(self) -> None:
         for info in self.reminders.values():
@@ -195,6 +198,7 @@ class Reminder(commands.Cog):
             for n in self.reminders
             if current.lower() in n.lower()
         ]
+
 
     @reminder.command(name="list", description="List active reminders.")
     async def list(self, interaction: discord.Interaction):

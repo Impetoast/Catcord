@@ -98,6 +98,52 @@ class Reminder(commands.Cog):
             channel = self.bot.get_channel(channel_id)
             if channel:
                 await channel.send(message)
+
+                # Mirror reminders via LangRelay if channel participates in a group
+                lr_cog = self.bot.get_cog("LangRelay")
+                if lr_cog and getattr(channel, "guild", None):
+                    try:
+                        guild = channel.guild
+                        await lr_cog._ensure_cache(guild)
+                        groups = lr_cog._groups(guild.id)
+                        gopts = lr_cog._group_options(guild.id)
+
+                        src_groups = [
+                            gname
+                            for gname, chans in groups.items()
+                            if channel.name in chans and gopts.get(gname, True)
+                        ]
+                        sent_to = {channel.id}
+                        for gname in src_groups:
+                            chans = groups.get(gname, {})
+                            src_lang = chans.get(channel.name)
+                            for tgt_name, tgt_lang in chans.items():
+                                if tgt_name == channel.name:
+                                    continue
+                                tgt_channel = lr_cog._get_channel_by_name(guild.id, tgt_name)
+                                if not tgt_channel or tgt_channel.id in sent_to:
+                                    continue
+                                out_text = message
+                                if tgt_lang:
+                                    try:
+                                        out_text = await lr_cog._translate(
+                                            message, tgt_lang, src_lang, guild.id
+                                        )
+                                    except Exception as e:  # pragma: no cover - translation optional
+                                        print(
+                                            f"⚠️ Reminder translation failed ({channel.name} → {tgt_name}): {e}"
+                                        )
+                                try:
+                                    await tgt_channel.send(out_text)
+                                except Exception as e:  # pragma: no cover - sending may fail
+                                    print(
+                                        f"⚠️ Reminder mirror failed to #{tgt_name}: {e}"
+                                    )
+                                else:
+                                    sent_to.add(tgt_channel.id)
+                    except Exception as e:  # pragma: no cover - safety for LangRelay
+                        print(f"⚠️ Reminder LangRelay integration failed: {e}")
+
                 info["last"] = now
                 self.save_reminders()
 

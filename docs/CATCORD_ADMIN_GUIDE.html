@@ -1,1 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1" name="viewport"/>
+<title>Catcord – Admin Guide</title>
+<link href="catcord-docs-responsive.css" rel="stylesheet"/>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --text:#c9d1d9; --muted:#8b949e; --accent:#58a6ff; --border:#30363d; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.6 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Arial; }
+  .wrap { max-width:880px; margin:0 auto; padding:28px 20px; }
+  h1 { font-size:1.9rem; margin:0 0 8px; }
+  p.lead { color:var(--muted); margin:0 0 16px; }
+  section { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:14px 0; }
+  h2 { font-size:1.2rem; margin:0 0 10px; }
+  pre, code { background:#0b1220; color:#d1e7ff; border:1px solid #19223a; border-radius:6px; }
+  code { padding:2px 6px; }
+  pre { padding:10px 12px; overflow-x:auto; }
+  ul { margin:0.4em 0 0.4em 1.2em; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>Catcord – Admin Guide</h1>
+<p class="lead">Operational reference for Discord server administrators.</p>
+
+<section>
+<h2>Configuration</h2>
+<ul>
 <li>Optional guild restriction via <code>GUILD_ID</code> in <code>.env</code></li>
+</ul>
+</section>
+
+<section>
+<h2>Reminders</h2>
+<p>Schedule repeating messages using <code>/reminder</code> commands.</p>
+<h3>Syntax</h3>
+<pre>/reminder add name:&lt;id&gt; interval:&lt;number&gt; unit:&lt;minutes|hours|days&gt; channel:&lt;#channel&gt; message:&lt;text&gt; [weekday:&lt;day&gt;] [time:&lt;HH:MM&gt;]</pre>
+<h3>Examples</h3>
+<ul>
+<li><code>/reminder add name:backup interval:1 unit:days channel:#general message:"Run backup" time:02:00</code></li>
+<li><code>/reminder remove name:backup</code></li>
+<li><code>/reminder list</code></li>
+</ul>
+<p>Reminders persist across bot restarts and are stored in <code>reminders.json</code>.</p>
+<p><em>Permissions</em>: members need <strong>Use Application Commands</strong> to create or remove reminders, and the bot must have <strong>Send Messages</strong> in the target channel.</p>
+</section>
+
+</div>
+</body>
+</html>

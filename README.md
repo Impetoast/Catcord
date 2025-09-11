@@ -126,6 +126,28 @@ It mirrors and translates messages across language-specific channels, using **we
 
 ---
 
+## ⏰ Reminders
+
+Use `/reminder` commands to schedule repeating messages.
+
+**Syntax**
+
+```
+/reminder add name:<id> interval:<number> unit:<minutes|hours|days> channel:<#channel> message:<text> [weekday:<day>] [time:<HH:MM>]
+```
+
+**Examples**
+
+- `/reminder add name:backup interval:1 unit:days channel:#general message:"Run backup" time:02:00`
+- `/reminder remove name:backup`
+- `/reminder list`
+
+Reminders persist across bot restarts and are stored in `reminders.json`.
+
+*Permissions*: members need **Use Application Commands** to create or remove reminders, and the bot must have **Send Messages** in the target channel.
+
+---
+
 ## 🛠️ Troubleshooting
 
 - **Nothing is mirrored** → Ensure groups are configured (`/langrelay_group_list`) and **Manage Webhooks** permission is granted.  

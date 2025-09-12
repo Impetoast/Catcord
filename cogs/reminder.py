@@ -238,7 +238,7 @@ class Reminder(commands.Cog):
         interval="Optional interval amount",
         unit="Optional interval unit",
         weekday="Optional day of week",
-        time="Optional time of day HH:MM",
+        time="Optional time of day HH:MM (UTC)",
     )
     @app_commands.choices(
         unit=[

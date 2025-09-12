@@ -206,6 +206,30 @@ class Reminder(commands.Cog):
             raise ValueError("interval and unit must be given together")
         return (interval, unit)
 
+    @staticmethod
+    def _resolve_interval(
+        interval: int | None,
+        unit: str | None,
+        weekday: int | None,
+        has_time: bool,
+    ) -> tuple[int, str]:
+        """Determine final interval/unit values.
+
+        If both ``interval`` and ``unit`` are provided, they are used directly.
+        If neither is provided but ``weekday`` or ``has_time`` is given, sensible
+        defaults are returned (weekly or daily).  Otherwise a ``ValueError`` is
+        raised.
+        """
+
+        if interval is None and unit is None:
+            if weekday is not None or has_time:
+                # default to weekly when weekday specified, otherwise daily
+                return (7 if weekday is not None else 1, "days")
+            raise ValueError("interval and unit required without time/weekday")
+        if interval is None or unit is None:
+            raise ValueError("interval and unit must be given together")
+        return (interval, unit)
+
     @reminder.command(name="add", description="Add a repeating reminder.")
     @app_commands.describe(
         name="Name for the reminder",
@@ -248,6 +272,7 @@ class Reminder(commands.Cog):
             return
         guild_id = interaction.guild.id
         if name in self.reminders.get(guild_id, {}):
+
             await interaction.response.send_message(
                 f"Reminder `{name}` exists.", ephemeral=True
             )

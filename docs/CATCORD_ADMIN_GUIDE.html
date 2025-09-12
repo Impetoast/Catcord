@@ -35,14 +35,15 @@
 <h2>Reminders</h2>
 <p>Schedule repeating messages using <code>/reminder</code> commands.</p>
 <h3>Syntax</h3>
-<pre>/reminder add name:&lt;id&gt; interval:&lt;number&gt; unit:&lt;minutes|hours|days&gt; channel:&lt;#channel&gt; message:&lt;text&gt; [weekday:&lt;day&gt;] [time:&lt;HH:MM&gt;]</pre>
+<pre>/reminder add name:&lt;id&gt; channel:&lt;#channel&gt; message:&lt;text&gt; [interval:&lt;number&gt; unit:&lt;minutes|hours|days&gt;] [weekday:&lt;day&gt;] [time:&lt;HH:MM&gt;]</pre>
 <h3>Examples</h3>
 <ul>
-<li><code>/reminder add name:backup interval:1 unit:days channel:#general message:"Run backup" time:02:00</code></li>
+<li><code>/reminder add name:backup channel:#general message:"Run backup" time:02:00</code></li>
+<li><code>/reminder add name:standup channel:#dev message:"Daily standup" interval:1 unit:days time:09:00</code></li>
 <li><code>/reminder remove name:backup</code></li>
 <li><code>/reminder list</code></li>
 </ul>
-<p>Reminders persist across bot restarts and are stored in <code>reminders.json</code>.</p>
+<p>Reminders persist across bot restarts and are stored per guild in <code>./data/reminder/&lt;guild_id&gt;.json</code>.</p>
 <p><em>Permissions</em>: members need <strong>Use Application Commands</strong> to create or remove reminders, and the bot must have <strong>Send Messages</strong> in the target channel.</p>
 </section>
 

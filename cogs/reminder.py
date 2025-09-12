@@ -11,64 +11,79 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 
+DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "reminder"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+
 class Reminder(commands.Cog):
     """Cog managing persistent reminders."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.file = Path(__file__).resolve().parent.parent / "reminders.json"
-        self.reminders: dict[str, dict] = {}
+        self.reminders: dict[int, dict[str, dict]] = {}
         self.load_reminders()
 
     # slash command group
     reminder = app_commands.Group(name="reminder", description="Reminder utilities")
 
     def save_reminders(self) -> None:
-        data = {
-            name: {
-                "interval": info["interval"],
-                "unit": info["unit"],
-                "weekday": info["weekday"],
-                "hour": info["hour"],
-                "minute": info["minute"],
-                "channel_id": info["channel_id"],
-                "message": info["message"],
-                "last": info["last"],
-
+        existing = {p.stem: p for p in DATA_DIR.glob("*.json")}
+        for gid, path in existing.items():
+            if int(gid) not in self.reminders:
+                path.unlink()
+        for guild_id, rems in self.reminders.items():
+            path = DATA_DIR / f"{guild_id}.json"
+            data = {
+                name: {
+                    "interval": info["interval"],
+                    "unit": info["unit"],
+                    "weekday": info["weekday"],
+                    "hour": info["hour"],
+                    "minute": info["minute"],
+                    "channel_id": info["channel_id"],
+                    "message": info["message"],
+                    "last": info["last"],
+                }
+                for name, info in rems.items()
             }
-            for name, info in self.reminders.items()
-        }
-        with self.file.open("w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
+            with path.open("w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
 
     def load_reminders(self) -> None:
-        if not self.file.exists():
-            return
-        with self.file.open("r", encoding="utf-8") as f:
+        for file in DATA_DIR.glob("*.json"):
             try:
-                data = json.load(f)
-            except json.JSONDecodeError:
-                data = {}
-        for name, info in data.items():
-            self.create_reminder(
-                name,
-                info["interval"],
-                info.get("unit", "seconds"),
-                info["channel_id"],
-                info["message"],
-                info.get("weekday"),
-                info.get("hour"),
-                info.get("minute"),
-                info.get("last"),
-            )
+                guild_id = int(file.stem)
+            except ValueError:
+                continue
+            with file.open("r", encoding="utf-8") as f:
+                try:
+                    data = json.load(f)
+                except json.JSONDecodeError:
+                    data = {}
+            for name, info in data.items():
+                self.create_reminder(
+                    guild_id,
+                    name,
+                    info["interval"],
+                    info.get("unit", "seconds"),
+                    info["channel_id"],
+                    info["message"],
+                    info.get("weekday"),
+                    info.get("hour"),
+                    info.get("minute"),
+                    info.get("last"),
+                    save=False,
+                )
 
 
     def cog_unload(self) -> None:
-        for info in self.reminders.values():
-            info["task"].cancel()
+        for rems in self.reminders.values():
+            for info in rems.values():
+                info["task"].cancel()
 
     def create_reminder(
         self,
+        guild_id: int,
         name: str,
         interval: int,
         unit: str,
@@ -78,6 +93,7 @@ class Reminder(commands.Cog):
         hour: int | None = None,
         minute: int | None = None,
         last: float | None = None,
+        save: bool = True,
     ) -> None:
         seconds_per_unit = {"minutes": 60, "hours": 3600, "days": 86400}
         interval_seconds = interval * seconds_per_unit.get(unit, 1)
@@ -85,7 +101,7 @@ class Reminder(commands.Cog):
         async def send_reminder():
             await self.bot.wait_until_ready()
             now = time.time()
-            info = self.reminders[name]
+            info = self.reminders[guild_id][name]
             if now - info["last"] < interval_seconds:
                 return
             tm = time.gmtime(now)
@@ -152,7 +168,7 @@ class Reminder(commands.Cog):
         default_last = (
             0.0 if any(v is not None for v in (weekday, hour, minute)) else time.time()
         )
-        self.reminders[name] = {
+        self.reminders.setdefault(guild_id, {})[name] = {
             "interval": interval,
             "unit": unit,
             "weekday": weekday,
@@ -163,7 +179,32 @@ class Reminder(commands.Cog):
             "task": loop,
             "last": last if last is not None else default_last,
         }
-        self.save_reminders()
+        if save:
+            self.save_reminders()
+
+    @staticmethod
+    def _resolve_interval(
+        interval: int | None,
+        unit: str | None,
+        weekday: int | None,
+        has_time: bool,
+    ) -> tuple[int, str]:
+        """Determine final interval/unit values.
+
+        If both ``interval`` and ``unit`` are provided, they are used directly.
+        If neither is provided but ``weekday`` or ``has_time`` is given, sensible
+        defaults are returned (weekly or daily).  Otherwise a ``ValueError`` is
+        raised.
+        """
+
+        if interval is None and unit is None:
+            if weekday is not None or has_time:
+                # default to weekly when weekday specified, otherwise daily
+                return (7 if weekday is not None else 1, "days")
+            raise ValueError("interval and unit required without time/weekday")
+        if interval is None or unit is None:
+            raise ValueError("interval and unit must be given together")
+        return (interval, unit)
 
     @staticmethod
     def _resolve_interval(
@@ -226,7 +267,12 @@ class Reminder(commands.Cog):
         weekday: app_commands.Choice[int] | None = None,
         time: str | None = None,
     ) -> None:
-        if name in self.reminders:
+        if not interaction.guild:
+            await interaction.response.send_message("Guild only.", ephemeral=True)
+            return
+        guild_id = interaction.guild.id
+        if name in self.reminders.get(guild_id, {}):
+
             await interaction.response.send_message(
                 f"Reminder `{name}` exists.", ephemeral=True
             )
@@ -254,6 +300,7 @@ class Reminder(commands.Cog):
             return
 
         self.create_reminder(
+            guild_id,
             name,
             interval_value,
             unit_value,
@@ -270,31 +317,46 @@ class Reminder(commands.Cog):
     @reminder.command(name="remove", description="Remove a reminder.")
     @app_commands.describe(name="Reminder to remove")
     async def remove(self, interaction: discord.Interaction, name: str) -> None:
-        info = self.reminders.get(name)
+        if not interaction.guild:
+            await interaction.response.send_message("Guild only.", ephemeral=True)
+            return
+        guild_id = interaction.guild.id
+        guild_rems = self.reminders.get(guild_id, {})
+        info = guild_rems.get(name)
         if not info:
             await interaction.response.send_message(f"No reminder `{name}`.", ephemeral=True)
             return
         info["task"].cancel()
-        del self.reminders[name]
+        del guild_rems[name]
+        if not guild_rems:
+            del self.reminders[guild_id]
         self.save_reminders()
         await interaction.response.send_message(f"Reminder `{name}` removed.", ephemeral=True)
 
     @remove.autocomplete("name")
     async def remove_autocomplete(self, interaction: discord.Interaction, current: str):
+        if not interaction.guild:
+            return []
+        guild_id = interaction.guild.id
         return [
             app_commands.Choice(name=n, value=n)
-            for n in self.reminders
+            for n in self.reminders.get(guild_id, {})
             if current.lower() in n.lower()
         ]
 
 
     @reminder.command(name="list", description="List active reminders.")
     async def list(self, interaction: discord.Interaction):
-        if not self.reminders:
+        if not interaction.guild:
+            await interaction.response.send_message("Guild only.", ephemeral=True)
+            return
+        guild_id = interaction.guild.id
+        guild_rems = self.reminders.get(guild_id)
+        if not guild_rems:
             await interaction.response.send_message("No reminders set.", ephemeral=True)
             return
         lines = []
-        for name, info in self.reminders.items():
+        for name, info in guild_rems.items():
             channel = self.bot.get_channel(info["channel_id"])
             ch = channel.mention if channel else f"#{info['channel_id']}"
             interval = f"{info['interval']} {info['unit']}"

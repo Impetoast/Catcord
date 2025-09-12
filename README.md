@@ -143,7 +143,7 @@ Use `/reminder` commands to schedule repeating messages.
 - `/reminder remove name:backup`
 - `/reminder list`
 
-Reminders persist across bot restarts and are stored in `reminders.json`.
+Reminders persist across bot restarts and are stored per guild in `./data/reminder/<guild_id>.json`.
 
 *Permissions*: members need **Use Application Commands** to create or remove reminders, and the bot must have **Send Messages** in the target channel.
 

@@ -32,6 +32,36 @@
 </section>
 
 <section>
+<h2>Language Relay</h2>
+<p>Mirror and translate messages between channels using <code>/langrelay</code> commands.</p>
+<h3>Common Commands</h3>
+<pre>/langrelay_group_create &lt;name&gt;
+/langrelay_group_delete &lt;name&gt;
+/langrelay_group_add &lt;name&gt; #channel CODE
+/langrelay_group_remove &lt;name&gt; #channel
+/langrelay_group_list
+/langrelay_provider provider:&lt;deepl|openai&gt;
+/langrelay_replymode state:&lt;on|off&gt;
+/langrelay_thread_mirroring state:&lt;on|off&gt;
+/langrelay_reaction_mirroring state:&lt;on|off&gt;
+/langrelay_status
+/langrelay_power state:&lt;on|off&gt;
+/langrelay_group_power group:&lt;name&gt; state:&lt;on|off&gt;</pre>
+<p>Mappings persist across bot restarts and are stored per guild in <code>./data/langrelay/&lt;guild_id&gt;.json</code>.</p>
+<p><em>Permissions</em>: bot requires <strong>Send Messages</strong>, <strong>Manage Webhooks</strong>, and <strong>Read Message History</strong>.</p>
+</section>
+
+<section>
+<h2>Auto-Translate</h2>
+<p>Enable automatic translation in a channel.</p>
+<h3>Commands</h3>
+<pre>/autotranslate_on target:&lt;code&gt; [source:&lt;code&gt;] [formality:&lt;default|less|more&gt;] [min_chars:&lt;number&gt;]
+/autotranslate_status
+/autotranslate_off</pre>
+<p>Requires translation API key. Per-channel settings are not persistent.</p>
+</section>
+
+<section>
 <h2>Reminders</h2>
 <p>Schedule repeating messages using <code>/reminder</code> commands.</p>
 <h3>Syntax</h3>
@@ -45,6 +75,14 @@
 </ul>
 <p>Reminders persist across bot restarts and are stored per guild in <code>./data/reminder/&lt;guild_id&gt;.json</code>.</p>
 <p><em>Permissions</em>: members need <strong>Use Application Commands</strong> to create or remove reminders, and the bot must have <strong>Send Messages</strong> in the target channel.</p>
+</section>
+
+<section>
+<h2>Utilities</h2>
+<ul>
+<li><code>/translate</code>, <code>/detect</code>, <code>/languages</code></li>
+<li><code>/ping</code>, <code>/about</code></li>
+</ul>
 </section>
 
 </div>

@@ -144,8 +144,11 @@ Use `/reminder` commands to schedule repeating messages.
 - `/reminder add name:launch channel:#ops message:"Launch prep" time:13:00 once:true`
 - `/reminder remove name:backup`
 - `/reminder list`
+- `/reminder toggle enabled:false`
 
 Reminders persist across bot restarts and are stored per guild in `./data/reminder/<guild_id>.json`. When a time is provided, reminders fire on the minute (UTC). Setting only a `time` schedules a daily reminder, and enabling `once:true` creates a one-time reminder that clears itself after firing. Provide an optional `headline` to send the reminder inside an embed, and include `\n` in the message text to create multi-line reminders.
+
+Use `/reminder toggle enabled:false` to pause reminder delivery for the entire server while keeping the schedules saved. Re-enable deliveries with `/reminder toggle enabled:true`.
 
 *Permissions*: members need **Use Application Commands** to create or remove reminders, and the bot must have **Send Messages** in the target channel.
 

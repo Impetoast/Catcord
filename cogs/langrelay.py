@@ -110,6 +110,7 @@ class LangRelay(commands.Cog):
         self._webhook_cache: Dict[int, Dict[int, discord.Webhook]] = {}
         self._relay_map: Dict[int, Dict[int, int]] = {}
         self._relay_lookup: Dict[int, int] = {}
+        self._channel_locks: Dict[int, asyncio.Lock] = {}
 
     # -------------------- Persistence --------------------
     def _guild_path(self, guild_id: int) -> Path:
@@ -255,6 +256,13 @@ class LangRelay(commands.Cog):
         if guild_id not in self._sem_per_guild:
             self._sem_per_guild[guild_id] = asyncio.Semaphore(2)
         return self._sem_per_guild[guild_id]
+
+    def _channel_lock(self, channel_id: int) -> asyncio.Lock:
+        lock = self._channel_locks.get(channel_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._channel_locks[channel_id] = lock
+        return lock
 
     async def _ensure_cache(self, guild: discord.Guild):
         self._guild_channel_cache[guild.id] = {ch.name: ch for ch in guild.text_channels}
@@ -566,113 +574,115 @@ class LangRelay(commands.Cog):
 
         base_text = await self._resolve_mentions(message)
 
-        async with self._sem(guild.id):
-            sent_to: Set[int] = set()
-            tasks = []
-            links: List[Tuple[int, int]] = [(message.channel.id, message.id)]
-            for gname in src_groups:
-                chans = groups.get(gname, {})
-                src_lang = chans.get(src_channel.name)
-                for tgt_name, tgt_lang in chans.items():
-                    if tgt_name == src_channel.name:
-                        continue
-                    tgt_channel = self._get_channel_by_name(guild.id, tgt_name)
-                    if not tgt_channel or tgt_channel.id in sent_to:
-                        continue
-                    sent_to.add(tgt_channel.id)
+        lock = self._channel_lock(message.channel.id)
+        async with lock:
+            async with self._sem(guild.id):
+                sent_to: Set[int] = set()
+                tasks = []
+                links: List[Tuple[int, int]] = [(message.channel.id, message.id)]
+                for gname in src_groups:
+                    chans = groups.get(gname, {})
+                    src_lang = chans.get(src_channel.name)
+                    for tgt_name, tgt_lang in chans.items():
+                        if tgt_name == src_channel.name:
+                            continue
+                        tgt_channel = self._get_channel_by_name(guild.id, tgt_name)
+                        if not tgt_channel or tgt_channel.id in sent_to:
+                            continue
+                        sent_to.add(tgt_channel.id)
 
-                    async def _one(_tgt=tgt_channel, _tgt_lang=tgt_lang, _src_lang=src_lang):
-                        out_text = base_text
-                        try:
-                            if out_text and _tgt_lang:
-                                out_text = await self._translate(out_text, _tgt_lang, _src_lang, guild.id)
-                        except Exception as e:
-                            print(f"⚠️ Übersetzung fehlgeschlagen ({src_channel.name} → {_tgt.name}): {e}")
+                        async def _one(_tgt=tgt_channel, _tgt_lang=tgt_lang, _src_lang=src_lang):
                             out_text = base_text
-
-                        if replymode and message.reference and isinstance(message.reference.resolved, discord.Message):
-                            replied = message.reference.resolved
-                            replied_clean = await self._resolve_mentions(replied)
-                            preview = (replied_clean[:90] + "…") if len(replied_clean) > 90 else replied_clean
-                            ctx = f"(reply to {replied.author.display_name}: {preview})"
                             try:
-                                ctx_tr = await self._translate(ctx, _tgt_lang, _src_lang, guild.id)
-                            except Exception:
-                                ctx_tr = ctx
-                            out_text = f"{out_text}\n\n> {ctx_tr}" if out_text else f"> {ctx_tr}"
+                                if out_text and _tgt_lang:
+                                    out_text = await self._translate(out_text, _tgt_lang, _src_lang, guild.id)
+                            except Exception as e:
+                                print(f"⚠️ Übersetzung fehlgeschlagen ({src_channel.name} → {_tgt.name}): {e}")
+                                out_text = base_text
 
-                        files: List[discord.File] = []
-                        try:
-                            for att in message.attachments[:10]:
-                                data = await att.read()
-                                buf = io.BytesIO(data)
-                                buf.seek(0)
-                                files.append(discord.File(buf, filename=att.filename, spoiler=att.is_spoiler()))
-                        except Exception as e:
-                            print(f"⚠️ Konnte Anhänge nicht lesen: {e}")
+                            if replymode and message.reference and isinstance(message.reference.resolved, discord.Message):
+                                replied = message.reference.resolved
+                                replied_clean = await self._resolve_mentions(replied)
+                                preview = (replied_clean[:90] + "…") if len(replied_clean) > 90 else replied_clean
+                                ctx = f"(reply to {replied.author.display_name}: {preview})"
+                                try:
+                                    ctx_tr = await self._translate(ctx, _tgt_lang, _src_lang, guild.id)
+                                except Exception:
+                                    ctx_tr = ctx
+                                out_text = f"{out_text}\n\n> {ctx_tr}" if out_text else f"> {ctx_tr}"
 
-                        if not out_text and not files:
-                            return
-
-                        target_thread: Optional[discord.Thread] = None
-                        if thread_mirroring and src_thread is not None:
-                            target_thread = await self._get_or_create_target_thread(
-                                base_channel=_tgt,
-                                thread_name=src_thread.name,
-                                auto_archive_duration=src_thread.auto_archive_duration or 1440
-                            )
-
-                        webhook = await self._get_or_create_webhook(_tgt)
-                        dest = target_thread or _tgt
-                        sent_msg: Optional[discord.Message] = None
-                        if not webhook:
+                            files: List[discord.File] = []
                             try:
-                                sent_msg = await self._safe_channel_send(
-                                    dest,
+                                for att in message.attachments[:10]:
+                                    data = await att.read()
+                                    buf = io.BytesIO(data)
+                                    buf.seek(0)
+                                    files.append(discord.File(buf, filename=att.filename, spoiler=att.is_spoiler()))
+                            except Exception as e:
+                                print(f"⚠️ Konnte Anhänge nicht lesen: {e}")
+
+                            if not out_text and not files:
+                                return
+
+                            target_thread: Optional[discord.Thread] = None
+                            if thread_mirroring and src_thread is not None:
+                                target_thread = await self._get_or_create_target_thread(
+                                    base_channel=_tgt,
+                                    thread_name=src_thread.name,
+                                    auto_archive_duration=src_thread.auto_archive_duration or 1440
+                                )
+
+                            webhook = await self._get_or_create_webhook(_tgt)
+                            dest = target_thread or _tgt
+                            sent_msg: Optional[discord.Message] = None
+                            if not webhook:
+                                try:
+                                    sent_msg = await self._safe_channel_send(
+                                        dest,
+                                        content=out_text or None,
+                                        files=files or None,
+                                        allowed_mentions=discord.AllowedMentions.none(),
+                                    )
+                                except Exception as e:
+                                    print(f"⚠️ Nachricht in #{_tgt.name} konnte nicht gesendet werden: {e}")
+                                else:
+                                    if sent_msg:
+                                        links.append((dest.id, sent_msg.id))
+                                return
+
+                            try:
+                                sent_msg = await self._safe_webhook_send(
+                                    webhook,
                                     content=out_text or None,
                                     files=files or None,
-                                    allowed_mentions=discord.AllowedMentions.none(),
+                                    allowed_mentions=discord.AllowedMentions.none(),  # klickbar, stumm
+                                    thread=target_thread,
+                                    username=display_name,
+                                    avatar_url=avatar_url,
                                 )
+                            except TypeError:
+                                # ältere discord.py ohne thread=
+                                try:
+                                    sent_msg = await self._safe_channel_send(
+                                        dest,
+                                        content=out_text or None,
+                                        files=files or None,
+                                        allowed_mentions=discord.AllowedMentions.none(),
+                                    )
+                                except Exception as e:
+                                    print(f"⚠️ Webhook/Thread-Fallback in #{_tgt.name} fehlgeschlagen: {e}")
                             except Exception as e:
-                                print(f"⚠️ Nachricht in #{_tgt.name} konnte nicht gesendet werden: {e}")
-                            else:
-                                if sent_msg:
-                                    links.append((dest.id, sent_msg.id))
-                            return
+                                print(f"⚠️ Webhook-Senden in #{_tgt.name} fehlgeschlagen: {e}")
+                            if sent_msg:
+                                links.append((dest.id, sent_msg.id))
 
-                        try:
-                            sent_msg = await self._safe_webhook_send(
-                                webhook,
-                                content=out_text or None,
-                                files=files or None,
-                                allowed_mentions=discord.AllowedMentions.none(),  # klickbar, stumm
-                                thread=target_thread,
-                                username=display_name,
-                                avatar_url=avatar_url,
-                            )
-                        except TypeError:
-                            # ältere discord.py ohne thread=
-                            try:
-                                sent_msg = await self._safe_channel_send(
-                                    dest,
-                                    content=out_text or None,
-                                    files=files or None,
-                                    allowed_mentions=discord.AllowedMentions.none(),
-                                )
-                            except Exception as e:
-                                print(f"⚠️ Webhook/Thread-Fallback in #{_tgt.name} fehlgeschlagen: {e}")
-                        except Exception as e:
-                            print(f"⚠️ Webhook-Senden in #{_tgt.name} fehlgeschlagen: {e}")
-                        if sent_msg:
-                            links.append((dest.id, sent_msg.id))
-
-                    tasks.append(_one())
-            if tasks:
-                await asyncio.gather(*tasks)
-                if len(links) > 1:
-                    self._relay_map[message.id] = {ch: mid for ch, mid in links}
-                    for ch, mid in links:
-                        self._relay_lookup[mid] = message.id
+                        tasks.append(_one())
+                if tasks:
+                    await asyncio.gather(*tasks)
+                    if len(links) > 1:
+                        self._relay_map[message.id] = {ch: mid for ch, mid in links}
+                        for ch, mid in links:
+                            self._relay_lookup[mid] = message.id
 
     async def _mirror_reaction(self, payload: discord.RawReactionActionEvent, adding: bool):
         if payload.user_id == self.bot.user.id:

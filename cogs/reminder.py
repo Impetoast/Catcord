@@ -38,6 +38,7 @@ class Reminder(commands.Cog):
                 name: {
                     "interval": info["interval"],
                     "unit": info["unit"],
+                    "headline": info.get("headline"),
                     "weekday": info["weekday"],
                     "hour": info["hour"],
                     "minute": info["minute"],
@@ -70,6 +71,7 @@ class Reminder(commands.Cog):
                     info.get("unit", "seconds"),
                     info["channel_id"],
                     info["message"],
+                    info.get("headline"),
                     info.get("weekday"),
                     info.get("hour"),
                     info.get("minute"),
@@ -92,6 +94,7 @@ class Reminder(commands.Cog):
         unit: str,
         channel_id: int,
         message: str,
+        headline: str | None = None,
         weekday: int | None = None,
         hour: int | None = None,
         minute: int | None = None,
@@ -116,7 +119,14 @@ class Reminder(commands.Cog):
                 return
             channel = self.bot.get_channel(channel_id)
             if channel:
-                await channel.send(message)
+                render_text = self._render_message(info["message"])
+                embed = None
+                if info.get("headline"):
+                    embed = discord.Embed(
+                        title=info["headline"], description=render_text
+                    )
+                send_kwargs = {"embed": embed} if embed else {"content": render_text}
+                await channel.send(**send_kwargs)
 
                 # Mirror reminders via LangRelay if channel participates in a group
                 lr_cog = self.bot.get_cog("LangRelay")
@@ -133,6 +143,8 @@ class Reminder(commands.Cog):
                             if channel.name in chans and gopts.get(gname, True)
                         ]
                         sent_to = {channel.id}
+                        base_text = render_text
+                        headline_text = info.get("headline")
                         for gname in src_groups:
                             chans = groups.get(gname, {})
                             src_lang = chans.get(channel.name)
@@ -142,18 +154,24 @@ class Reminder(commands.Cog):
                                 tgt_channel = lr_cog._get_channel_by_name(guild.id, tgt_name)
                                 if not tgt_channel or tgt_channel.id in sent_to:
                                     continue
-                                out_text = message
+                                out_text = base_text
                                 if tgt_lang:
                                     try:
                                         out_text = await lr_cog._translate(
-                                            message, tgt_lang, src_lang, guild.id
+                                            base_text, tgt_lang, src_lang, guild.id
                                         )
                                     except Exception as e:  # pragma: no cover - translation optional
                                         print(
                                             f"⚠️ Reminder translation failed ({channel.name} → {tgt_name}): {e}"
                                         )
                                 try:
-                                    await tgt_channel.send(out_text)
+                                    if headline_text:
+                                        embed = discord.Embed(
+                                            title=headline_text, description=out_text
+                                        )
+                                        await tgt_channel.send(embed=embed)
+                                    else:
+                                        await tgt_channel.send(out_text)
                                 except Exception as e:  # pragma: no cover - sending may fail
                                     print(
                                         f"⚠️ Reminder mirror failed to #{tgt_name}: {e}"
@@ -181,6 +199,7 @@ class Reminder(commands.Cog):
         self.reminders.setdefault(guild_id, {})[name] = {
             "interval": interval,
             "unit": unit,
+            "headline": headline,
             "weekday": weekday,
             "hour": hour,
             "minute": minute,
@@ -239,11 +258,18 @@ class Reminder(commands.Cog):
             raise ValueError("interval and unit must be given together")
         return (interval, unit)
 
+    @staticmethod
+    def _render_message(message: str) -> str:
+        """Convert escaped newline sequences to actual newlines for output."""
+
+        return message.replace("\\n", "\n")
+
     @reminder.command(name="add", description="Add a repeating reminder.")
     @app_commands.describe(
         name="Name for the reminder",
         channel="Channel to post in",
         message="Reminder message",
+        headline="Optional headline for embed output",
         interval="Optional interval amount",
         unit="Optional interval unit",
         weekday="Optional day of week",
@@ -272,6 +298,7 @@ class Reminder(commands.Cog):
         name: str,
         channel: discord.TextChannel,
         message: str,
+        headline: str | None = None,
         interval: int | None = None,
         unit: app_commands.Choice[str] | None = None,
         weekday: app_commands.Choice[int] | None = None,
@@ -317,6 +344,7 @@ class Reminder(commands.Cog):
             unit_value,
             channel.id,
             message,
+            headline,
             weekday.value if weekday else None,
             hour,
             minute,
@@ -394,7 +422,11 @@ class Reminder(commands.Cog):
                     schedule += f" on {days[info['weekday']]}"
                 if info["hour"] is not None and info["minute"] is not None:
                     schedule += f" at {info['hour']:02d}:{info['minute']:02d}"
-            lines.append(f"`{name}` {schedule} in {ch}: {info['message']}")
+            message_preview = self._render_message(info["message"])
+            if info.get("headline"):
+                message_preview = f"{info['headline']}\n{message_preview}"
+            formatted_message = message_preview.replace("\n", "\n    ")
+            lines.append(f"`{name}` {schedule} in {ch}:\n    {formatted_message}")
         await interaction.response.send_message("\n".join(lines), ephemeral=True)
 
 

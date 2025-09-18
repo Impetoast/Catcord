@@ -1,5 +1,6 @@
-import pathlib
+import datetime
 import importlib.util
+import pathlib
 import unittest
 
 
@@ -31,6 +32,20 @@ class ResolveIntervalTest(unittest.TestCase):
     def test_requires_info(self):
         with self.assertRaises(ValueError):
             Reminder._resolve_interval(None, None, None, False)
+
+
+class SecondsUntilNextMinuteTest(unittest.TestCase):
+    def test_exact_boundary(self):
+        now = datetime.datetime(2024, 1, 1, 12, 0, 0)
+        self.assertEqual(Reminder._seconds_until_next_minute(now), 0.0)
+
+    def test_half_minute(self):
+        now = datetime.datetime(2024, 1, 1, 12, 0, 30)
+        self.assertEqual(Reminder._seconds_until_next_minute(now), 30)
+
+    def test_fractional_second(self):
+        now = datetime.datetime(2024, 1, 1, 12, 0, 59, 500000)
+        self.assertAlmostEqual(Reminder._seconds_until_next_minute(now), 0.5)
 
 
 if __name__ == '__main__':

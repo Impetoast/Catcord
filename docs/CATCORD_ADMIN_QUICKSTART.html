@@ -74,8 +74,11 @@
 <div>
 <h2>8) Schedule Reminders</h2>
 <pre>/reminder add name:backup channel:#general message:"Run backup" time:02:00
+/reminder add name:colony channel:#ops message:"Territory Development\n-Building Power\n-Fortification Power" headline:"Colony Action" interval:1 unit:days
+/reminder add name:launch channel:#ops message:"Launch prep" time:13:00 once:true
 /reminder list
-/reminder remove name:backup</pre>
+/reminder remove name:backup
+/reminder toggle enabled:false</pre>
 </div>
 </section>
 <section class="two">

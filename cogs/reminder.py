@@ -22,6 +22,7 @@ class Reminder(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.reminders: dict[int, dict[str, dict]] = {}
+        self.guild_settings: dict[int, bool] = {}
         self.load_reminders()
 
     # slash command group
@@ -29,12 +30,14 @@ class Reminder(commands.Cog):
 
     def save_reminders(self) -> None:
         existing = {p.stem: p for p in DATA_DIR.glob("*.json")}
+        tracked_ids = set(self.reminders) | set(self.guild_settings)
         for gid, path in existing.items():
-            if int(gid) not in self.reminders:
+            if int(gid) not in tracked_ids:
                 path.unlink()
-        for guild_id, rems in self.reminders.items():
+        for guild_id in tracked_ids:
             path = DATA_DIR / f"{guild_id}.json"
-            data = {
+            rems = self.reminders.get(guild_id, {})
+            reminder_payload = {
                 name: {
                     "interval": info["interval"],
                     "unit": info["unit"],
@@ -49,8 +52,12 @@ class Reminder(commands.Cog):
                 }
                 for name, info in rems.items()
             }
+            payload = {
+                "__settings": {"enabled": self.guild_settings.get(guild_id, True)}
+            }
+            payload.update(reminder_payload)
             with path.open("w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
+                json.dump(payload, f, indent=2)
 
     def load_reminders(self) -> None:
         for file in DATA_DIR.glob("*.json"):
@@ -63,7 +70,16 @@ class Reminder(commands.Cog):
                     data = json.load(f)
                 except json.JSONDecodeError:
                     data = {}
+            if not isinstance(data, dict):
+                data = {}
+            settings_info = data.get("__settings")
+            if isinstance(settings_info, dict):
+                self.guild_settings[guild_id] = bool(settings_info.get("enabled", True))
+            else:
+                self.guild_settings.setdefault(guild_id, True)
             for name, info in data.items():
+                if name.startswith("__"):
+                    continue
                 self.create_reminder(
                     guild_id,
                     name,
@@ -108,6 +124,8 @@ class Reminder(commands.Cog):
         async def send_reminder():
             now = time.time()
             info = self.reminders[guild_id][name]
+            if not self.guild_settings.get(guild_id, True):
+                return
             if now - info["last"] < interval_seconds:
                 return
             tm = time.gmtime(now)
@@ -196,6 +214,7 @@ class Reminder(commands.Cog):
         default_last = (
             0.0 if any(v is not None for v in (weekday, hour, minute)) else time.time()
         )
+        self.guild_settings.setdefault(guild_id, True)
         self.reminders.setdefault(guild_id, {})[name] = {
             "interval": interval,
             "unit": unit,
@@ -383,6 +402,21 @@ class Reminder(commands.Cog):
             for n in self.reminders.get(guild_id, {})
             if current.lower() in n.lower()
         ]
+
+
+    @reminder.command(name="toggle", description="Enable or disable reminders for this server.")
+    @app_commands.describe(enabled="Whether reminders should be enabled")
+    async def toggle(self, interaction: discord.Interaction, enabled: bool) -> None:
+        if not interaction.guild:
+            await interaction.response.send_message("Guild only.", ephemeral=True)
+            return
+        guild_id = interaction.guild.id
+        self.guild_settings[guild_id] = enabled
+        self.save_reminders()
+        status = "enabled" if enabled else "disabled"
+        await interaction.response.send_message(
+            f"Reminders {status}.", ephemeral=True
+        )
 
 
     @reminder.command(name="list", description="List active reminders.")

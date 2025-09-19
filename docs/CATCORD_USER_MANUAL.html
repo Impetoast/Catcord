@@ -34,16 +34,18 @@ a:hover { text-decoration: underline; }
 
     <section>
       <h2>Overview</h2>
-      <p>Catcord helps people chat across languages. When you write in a language-specific channel (for example, <code>#german</code>), Catcord can mirror your message to other mapped channels (such as <code>#english</code> or <code>#french</code>). Mirrored messages may be automatically translated and are posted via webhooks using your display name and avatar — so they look like you sent them.</p>
+      <p>Catcord helps people chat across languages. When you write in a language-specific channel (for example, <code>#german</code>), Catcord can mirror your message to other mapped channels (such as <code>#english</code> or <code>#french</code>). Mirrored messages may be automatically translated by DeepL or OpenAI and are posted via webhooks using your display name and avatar—so they look like you sent them.</p>
     </section>
 
     <section>
       <h2>How It Works</h2>
       <ul>
-        <li><strong>Channel mappings:</strong> Admins connect language channels (e.g., <code>#german</code> ↔ <code>#english</code> ↔ <code>#french</code>).</li>
+        <li><strong>Channel mappings:</strong> Admins connect language channels (e.g., <code>#german</code> ↔ <code>#english</code> ↔ <code>#french</code>). Each group can be paused independently.</li>
         <li><strong>Invisible posting:</strong> Catcord uses webhooks to post mirrored messages with your name and avatar.</li>
         <li><strong>Translation:</strong> Depending on server settings, messages are translated automatically (DeepL or OpenAI).</li>
+        <li><strong>Auto-translate channels:</strong> Some channels may have <code>/autotranslate_on</code> enabled—messages get an instant reply containing the translation.</li>
         <li><strong>Loop protection:</strong> Messages posted by webhooks aren’t mirrored again.</li>
+        <li><strong>Extras:</strong> Optional reply snippets, thread mirroring, and mirrored emoji reactions can be enabled by admins.</li>
       </ul>
     </section>
 
@@ -54,6 +56,11 @@ a:hover { text-decoration: underline; }
         <li>Write normally in your language channel. If channels are mapped, your message will appear in the other language channels.</li>
         <li>Attachments (images/files) are mirrored with your message when possible.</li>
       </ul>
+      <h3>Auto-translated replies</h3>
+      <ul>
+        <li>In channels with auto-translate, expect a bot reply beneath your message summarising the translation.</li>
+        <li>Keep your text longer than the minimum character threshold (typically 5–10 characters) so translations trigger.</li>
+      </ul>
       <h3>Replies</h3>
       <ul>
         <li>If enabled by admins, mirrored replies include a short translated line indicating what you replied to.</li>
@@ -62,6 +69,10 @@ a:hover { text-decoration: underline; }
       <ul>
         <li>If enabled by admins, messages in a thread are mirrored into threads with the same name in the other channels.</li>
       </ul>
+      <h3>Reactions</h3>
+      <ul>
+        <li>Emoji reactions you add to mirrored messages can be copied to the linked copies when reaction mirroring is on.</li>
+      </ul>
     </section>
 
     <section>
@@ -69,12 +80,34 @@ a:hover { text-decoration: underline; }
       <ul>
         <li>Keep sentences clear and simple for better translations.</li>
         <li>If a translation seems off, try rephrasing and sending again.</li>
-        <li>Mentions may be sanitized to avoid pinging people across different channels.</li>
+        <li>Mentions may be sanitised to avoid pinging people across different channels.</li>
+        <li>Thread names should match across languages to keep mirrored discussions tidy.</li>
       </ul>
     </section>
 
     <section>
-      <h2>Privacy & Transparency</h2>
+      <h2>Slash Commands You Can Use</h2>
+      <ul>
+        <li><code>/translate</code> – translate a custom snippet (results arrive privately by default).</li>
+        <li><code>/detect</code> – detect the language of a message.</li>
+        <li><code>/languages</code> – list supported DeepL language codes.</li>
+        <li><code>/ping</code> – check the bot’s latency.</li>
+        <li><code>/about</code> – see bot information.</li>
+      </ul>
+      <p class="small">Admins may grant additional commands such as <code>/reminder add</code> for scheduling messages. If unsure, ask your moderation team.</p>
+    </section>
+
+    <section>
+      <h2>Reminders</h2>
+      <ul>
+        <li>Servers can schedule reminders with Catcord. When a reminder is configured for your channel, it will appear on the minute (UTC) with the text provided by admins.</li>
+        <li>Reminders may include an embed headline or appear as plain text.</li>
+        <li>If the channel participates in a language relay group, the reminder can be translated and echoed to the paired channels automatically.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Privacy &amp; Transparency</h2>
       <ul>
         <li>Mirrored posts use your display name and avatar via webhooks.</li>
         <li>Catcord does not DM you and does not store your personal messages beyond what is needed to mirror them.</li>
@@ -88,15 +121,7 @@ a:hover { text-decoration: underline; }
         <li><strong>My message isn’t mirrored:</strong> Ask an admin whether your channel is mapped and whether you have permission to post in the target channels.</li>
         <li><strong>Attachment didn’t appear:</strong> Retry with a smaller file; very large attachments can fail.</li>
         <li><strong>Translation looks wrong:</strong> Automatic translation isn’t perfect. Rephrase and resend, or ask an admin which provider is used.</li>
-      </ul>
-    </section>
-
-    <section>
-      <h2>FAQ</h2>
-      <ul>
-        <li><strong>Will I get DMs from Catcord?</strong> No. Catcord posts only in channels the admins configured.</li>
-        <li><strong>Can I turn off mirroring for myself?</strong> Mirroring follows server-wide settings. Ask an admin if you need an exception.</li>
-        <li><strong>Does Catcord ping people?</strong> Mentions may be sanitized in relays to prevent accidental mass-pinging across channels.</li>
+        <li><strong>I see duplicated reminders:</strong> The server might run both relays and reminders; let admins know so they can adjust settings.</li>
       </ul>
     </section>
 

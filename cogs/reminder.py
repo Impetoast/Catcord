@@ -198,10 +198,18 @@ class Reminder(commands.Cog):
         seconds_per_unit = {"minutes": 60, "hours": 3600, "days": 86400}
         normalized_times = self._prepare_times(times, weekday, hour, minute, last)
 
+        name_ref: dict[str, str] = {"value": name}
+
         async def send_reminder():
             now = time.time()
-            info = self.reminders[guild_id][name]
             if not self.guild_settings.get(guild_id, True):
+                return
+            guild_rems = self.reminders.get(guild_id)
+            if not guild_rems:
+                return
+            current_name = name_ref["value"]
+            info = guild_rems.get(current_name)
+            if not info:
                 return
             interval_value = info.get("interval")
             unit_value = info.get("unit")
@@ -237,7 +245,8 @@ class Reminder(commands.Cog):
                     return
                 if stored_minute is not None and tm.tm_min != stored_minute:
                     return
-            channel = self.bot.get_channel(channel_id)
+            channel_id = info.get("channel_id")
+            channel = self.bot.get_channel(channel_id) if channel_id else None
             if channel:
                 render_text = self._render_message(info["message"])
                 embed = None
@@ -317,7 +326,7 @@ class Reminder(commands.Cog):
         )
         default_last = 0.0 if has_time_constraints else time.time()
         self.guild_settings.setdefault(guild_id, True)
-        self.reminders.setdefault(guild_id, {})[name] = {
+        info_entry = {
             "interval": interval,
             "unit": unit,
             "headline": headline,
@@ -331,7 +340,9 @@ class Reminder(commands.Cog):
             "one_time": one_time,
             "times": normalized_times,
             "group": group,
+            "task_meta": name_ref,
         }
+        self.reminders.setdefault(guild_id, {})[name] = info_entry
         align_to_minute = has_time_constraints
 
         async def starter():
@@ -784,6 +795,9 @@ class Reminder(commands.Cog):
                 return
             guild_rems[new_name] = info
             del guild_rems[name]
+            task_meta = info.get("task_meta")
+            if isinstance(task_meta, dict):
+                task_meta["value"] = new_name
             current_name = new_name
             updates.append(f"renamed to `{new_name}`")
 

@@ -30,6 +30,7 @@
 <ul>
 <li><code>Send Messages</code>, <code>Manage Webhooks</code>, <code>Read Message History</code></li>
 <li>If using threads: <code>Create Public Threads</code></li>
+<li>Optional diagnostics: allow <code>Use Application Commands</code> for staff running slash commands.</li>
 </ul>
 </section>
 <section class="two">
@@ -37,71 +38,75 @@
 <h2>2) Map Channels</h2>
 <pre>/langrelay_group_create EU
 /langrelay_group_add EU #german DE
-/langrelay_group_add EU #english EN
+/langrelay_group_add EU #english EN-US
 /langrelay_group_add EU #french FR
 /langrelay_group_list</pre>
+<p>Use autocomplete for groups and language codes; remove entries with <code>/langrelay_group_remove</code>.</p>
 </div>
 <div>
 <h2>3) Choose Provider</h2>
 <pre>/langrelay_provider provider:deepl
 # or:
 /langrelay_provider provider:openai</pre>
+<p>Bot validates tokens before switching. Default provider favours OpenAI when both keys exist.</p>
 </div>
 </section>
 <section class="two">
 <div>
 <h2>4) Toggle Options</h2>
-<pre><code>/langrelay_replymode state:on
+<pre>/langrelay_replymode state:on
 /langrelay_thread_mirroring state:on
-/langrelay_reaction_mirroring state:on</code></pre>
+/langrelay_reaction_mirroring state:on</pre>
+<p>Leave options off if you do not need reply context, thread mirroring, or reaction sync.</p>
 </div>
 <div>
-<h2>5) Verify</h2>
-<pre><code>/langrelay_status</code></pre><h2>6) Power (Global On/Off)</h2><pre>/langrelay_power state:off
-# later
-/langrelay_power state:on</pre><h2>Group Power</h2><pre>/langrelay_group_power group:EU state:off
-# later
-/langrelay_group_power group:EU state:on</pre>
+<h2>5) Power Controls</h2>
+<pre>/langrelay_power state:on
+/langrelay_group_power group:EU state:on
+/langrelay_status</pre>
+<p>Use group power to pause a single mapping while keeping others online.</p>
 </div>
 </section>
 <section class="two">
 <div>
-<h2>7) Auto-Translate (Optional)</h2>
-<pre>/autotranslate_on target:EN
+<h2>6) Auto-Translate (Optional)</h2>
+<pre>/autotranslate_on target:EN-US source:DE formality:more min_chars:8
 /autotranslate_status
 /autotranslate_off</pre>
+<p>Enable in channels without relay mappings. Keep <code>min_chars</code> low enough for natural replies.</p>
 </div>
 <div>
-<h2>8) Schedule Reminders</h2>
-<pre>/reminder add name:backup channel:#general message:"Run backup" time:02:00
-/reminder add name:colony channel:#ops message:"Territory Development\n-Building Power\n-Fortification Power" headline:"Colony Action" interval:1 unit:days
-/reminder add name:launch channel:#ops message:"Launch prep" time:13:00 once:true
+<h2>7) Schedule Reminders</h2>
+<pre>/reminder add name:backup channel:#ops message:"Run backup" time:02:00
+/reminder add name:reports channel:#ops message:"Weekly metrics" times:"Mon@09:00, Thu@09:00" group:Ops
 /reminder list
-/reminder remove name:backup
 /reminder toggle enabled:false</pre>
+<p>Use <code>/reminder edit</code> for adjustments and <code>/reminder group rename</code>/<code>... remove</code> to manage labelled sets.</p>
 </div>
 </section>
 <section class="two">
 <div>
 <h2>Troubleshooting</h2>
 <ul>
-<li>Nothing mirrored → check mappings &amp; permissions.</li>
-<li>Translation fails → verify keys / provider.</li>
-<li>Threads not mirrored → ensure thread permission.</li>
-<li>Reactions not mirrored → ensure reaction mirroring is enabled.</li>
+<li>Nothing mirrored → check permissions, group power, and <code>/langrelay_status</code>.</li>
+<li>Translation fails → verify provider tokens and API quotas.</li>
+<li>Threads not mirrored → ensure thread option and permissions are active.</li>
+<li>Reactions not mirrored → enable reaction mirroring on both ends.</li>
 </ul>
 </div>
 <div>
 <h2>Useful Utilities</h2>
-<pre><code>/translate  text:&lt;message&gt;
+<pre>/translate  text:&lt;message&gt;
 /detect     text:&lt;message&gt;
 /languages
+/tping
 /ping
-/about</code></pre>
+/about</pre>
+<p>Slash commands answer ephemerally by default. Use <code>/hello</code> for a quick connectivity ping.</p>
 </div>
 </section>
 <section class="note">
-<strong>Tip:</strong> Use consistent channel names (e.g., <code>#german</code>, <code>#english</code>, <code>#french</code>) and map each once.
+<strong>Tip:</strong> Keep consistent channel names (e.g., <code>#german</code>, <code>#english</code>, <code>#french</code>) so you can re-use autocomplete and avoid mapping duplicates.
     </section>
 </div>
 </body>

@@ -13,6 +13,7 @@
   p.lead { color:var(--muted); margin:0 0 16px; }
   section { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:14px 0; }
   h2 { font-size:1.2rem; margin:0 0 10px; }
+  h3 { font-size:1.05rem; margin:0.8em 0 0.35em; }
   pre, code { background:#0b1220; color:#d1e7ff; border:1px solid #19223a; border-radius:6px; }
   code { padding:2px 6px; }
   pre { padding:10px 12px; overflow-x:auto; }
@@ -27,65 +28,88 @@
 <section>
 <h2>Configuration</h2>
 <ul>
-<li>Optional guild restriction via <code>GUILD_ID</code> in <code>.env</code></li>
+<li><strong>Tokens:</strong> <code>DISCORD_TOKEN</code> (required), <code>DEEPL_TOKEN</code> and/or <code>OPENAI_TOKEN</code> for translation, optional <code>DEEPL_API_URL</code>, <code>OPENAI_API_URL</code>, <code>OPENAI_MODEL</code>.</li>
+<li><strong>Guild scope:</strong> set <code>GUILD_ID</code> in <code>.env</code> to restrict the bot to a single server during testing.</li>
+<li><strong>Webhook label:</strong> override <code>LANGRELAY_WEBHOOK_NAME</code> to customise the relay webhook name.</li>
+<li><strong>Persistence:</strong> per-guild LangRelay data lives in <code>./data/langrelay/&lt;guild_id&gt;.json</code>; reminders live in <code>./data/reminder/&lt;guild_id&gt;.json</code>.</li>
+<li>Slash commands sync automatically on launch; run the <code>reload</code>/<code>load</code>/<code>unload</code> owner commands to hot-reload cogs.</li>
 </ul>
 </section>
 
 <section>
 <h2>Language Relay</h2>
-<p>Mirror and translate messages between channels using <code>/langrelay</code> commands.</p>
-<h3>Common Commands</h3>
-<pre>/langrelay_group_create &lt;name&gt;
-/langrelay_group_delete &lt;name&gt;
-/langrelay_group_add &lt;name&gt; #channel CODE
-/langrelay_group_remove &lt;name&gt; #channel
+<p>Mirror language channels with webhooks, optional translation (DeepL or OpenAI), reply context, thread mirroring, and mirrored reactions.</p>
+<h3>Group lifecycle</h3>
+<pre>/langrelay_group_create EU
+/langrelay_group_add EU #german DE
+/langrelay_group_add EU #english EN-US
+/langrelay_group_add EU #french FR
 /langrelay_group_list
-/langrelay_provider provider:&lt;deepl|openai&gt;
-/langrelay_replymode state:&lt;on|off&gt;
-/langrelay_thread_mirroring state:&lt;on|off&gt;
-/langrelay_reaction_mirroring state:&lt;on|off&gt;
-/langrelay_status
-/langrelay_power state:&lt;on|off&gt;
-/langrelay_group_power group:&lt;name&gt; state:&lt;on|off&gt;</pre>
-<p>Mappings persist across bot restarts and are stored per guild in <code>./data/langrelay/&lt;guild_id&gt;.json</code>.</p>
-<p><em>Permissions</em>: bot requires <strong>Send Messages</strong>, <strong>Manage Webhooks</strong>, and <strong>Read Message History</strong>.</p>
+/langrelay_group_power group:EU state:off
+/langrelay_group_power group:EU state:on
+/langrelay_group_remove group:EU channel:#french
+/langrelay_group_delete group:EU</pre>
+<p><em>Notes:</em> groups are bidirectional; channel names are stored as keys. Removing the final channel deletes the group automatically.</p>
+<h3>Provider &amp; options</h3>
+<ul>
+<li><code>/langrelay_provider provider:&lt;deepl|openai&gt;</code> – validates keys before switching.</li>
+<li><code>/langrelay_power state:&lt;on|off&gt;</code> – global enable/disable.</li>
+<li><code>/langrelay_replymode state:&lt;on|off&gt;</code> – adds reply context text above mirrored messages.</li>
+<li><code>/langrelay_thread_mirroring state:&lt;on|off&gt;</code> – mirrors threads with matching names.</li>
+<li><code>/langrelay_reaction_mirroring state:&lt;on|off&gt;</code> – copies emoji reactions across mirrored posts.</li>
+</ul>
+<h3>Status &amp; maintenance</h3>
+<ul>
+<li><code>/langrelay_status</code> – shows provider, feature toggles, and every group with their current state (<code>on/off</code>).</li>
+<li><code>/langrelay_group_add</code> and <code>..._remove</code> offer autocomplete for groups and language codes; DeepL targets are fetched hourly when a token is available.</li>
+<li>Webhook permissions required: <strong>Send Messages</strong>, <strong>Manage Webhooks</strong>, <strong>Read Message History</strong>, plus <strong>Create Public Threads</strong> when thread mirroring is enabled.</li>
+</ul>
 </section>
 
 <section>
 <h2>Auto-Translate</h2>
-<p>Enable automatic translation in a channel.</p>
-<h3>Commands</h3>
-<pre>/autotranslate_on target:&lt;code&gt; [source:&lt;code&gt;] [formality:&lt;default|less|more&gt;] [min_chars:&lt;number&gt;]
+<p>Enable per-channel automatic translations without creating relay mappings.</p>
+<pre>/autotranslate_on target:EN-US source:DE formality:more min_chars:8
 /autotranslate_status
 /autotranslate_off</pre>
-<p>Requires translation API key. Per-channel settings are not persistent.</p>
+<ul>
+<li>Supported targets follow DeepL’s codes (with autocomplete). Sources are optional; leave blank for auto-detect.</li>
+<li><code>formality</code> accepts <code>default</code>, <code>less</code>, or <code>more</code> when supported by the target language.</li>
+<li><code>min_chars</code> prevents short confirmations from triggering translations (default 5 characters).</li>
+<li>Replies are posted to the original message; fallback channel messages are used if replying fails due to permissions.</li>
+</ul>
 </section>
 
 <section>
 <h2>Reminders</h2>
-<p>Schedule repeating messages using <code>/reminder</code> commands.</p>
-<h3>Syntax</h3>
-<pre>/reminder add name:&lt;id&gt; channel:&lt;#channel&gt; message:&lt;text&gt; [headline:&lt;title&gt;] [interval:&lt;number&gt; unit:&lt;minutes|hours|days&gt;] [weekday:&lt;day&gt;] [time:&lt;HH:MM&gt;] [once:true]</pre>
-<h3>Examples</h3>
+<p>Schedule repeating or one-time reminders with persistent storage and optional LangRelay mirroring.</p>
+<h3>Create</h3>
+<pre>/reminder add name:backup channel:#ops message:"Run backup" time:02:00
+/reminder add name:reports channel:#ops message:"Weekly metrics" times:"Mon@09:00, Thu@09:00" group:Ops
+/reminder add name:launch channel:#ops message:"Launch prep" interval:1 unit:days once:true</pre>
+<h3>Maintain</h3>
+<pre>/reminder edit name:reports add_times:"Sat@09:00" headline:"Weekly Reports"
+/reminder edit name:backup clear_interval:true
+/reminder remove name:launch
+/reminder list
+/reminder toggle enabled:false</pre>
+<h3>Group tools</h3>
+<pre>/reminder group rename name:Ops new_name:Operations
+/reminder group remove name:Operations delete_reminders:true</pre>
 <ul>
-<li><code>/reminder add name:backup channel:#general message:"Run backup" time:02:00</code></li>
-<li><code>/reminder add name:standup channel:#dev message:"Daily standup" interval:1 unit:days time:09:00</code></li>
-<li><code>/reminder add name:colony channel:#ops message:"Territory Development\n-Building Power\n-Fortification Power" headline:"Colony Action" interval:1 unit:days</code></li>
-<li><code>/reminder add name:launch channel:#ops message:"Launch prep" time:13:00 once:true</code></li>
-<li><code>/reminder remove name:backup</code></li>
-<li><code>/reminder list</code></li>
-<li><code>/reminder toggle enabled:false</code></li>
+<li>Schedules accept either an interval (<code>interval</code> + <code>unit</code>) or explicit times via <code>time</code> / <code>times</code>; mixing both is prevented.</li>
+<li>Use <code>group</code> labels to organise reminders; grouped entries appear together in <code>/reminder list</code> and can be bulk-renamed/removed.</li>
+<li>Reminders pause globally with <code>/reminder toggle enabled:false</code>; stored entries remain intact.</li>
+<li>When a reminder fires in a mapped LangRelay channel, translations are attempted for each linked channel automatically.</li>
 </ul>
-<p>Reminders persist across bot restarts and are stored per guild in <code>./data/reminder/&lt;guild_id&gt;.json</code>. When a time is provided, reminders fire on the minute (UTC). Supplying only a time schedules a daily reminder, and adding <code>once:true</code> creates a one-time reminder that deletes itself after sending. Provide an optional <code>headline</code> to place the reminder inside an embed, and include <code>\n</code> in the message text for multi-line reminders.</p>
-<p>Pause reminder delivery for a server with <code>/reminder toggle enabled:false</code>; re-enable with <code>/reminder toggle enabled:true</code>. Reminders remain saved while delivery is disabled.</p>
-<p><em>Permissions</em>: members need <strong>Use Application Commands</strong> to create or remove reminders, and the bot must have <strong>Send Messages</strong> in the target channel.</p>
 </section>
 
 <section>
-<h2>Utilities</h2>
+<h2>Utilities &amp; Diagnostics</h2>
 <ul>
-<li><code>/translate</code>, <code>/detect</code>, <code>/languages</code></li>
-<li><code>/ping</code>, <code>/about</code></li>
+<li><code>/translate</code>, <code>/detect</code>, <code>/languages</code> – DeepL helpers with autocomplete.</li>
+<li><code>/tping</code> (translation cog health), <code>/ping</code> (latency), <code>/about</code> (bot metadata), <code>/hello</code> (connectivity test).</li>
+<li>Owner-only text commands: <code>!reload cogs.langrelay</code>, <code>!load ...</code>, <code>!unload ...</code>.</li>
 </ul>
 </section>
 

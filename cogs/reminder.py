@@ -245,8 +245,7 @@ class Reminder(commands.Cog):
                     return
                 if stored_minute is not None and tm.tm_min != stored_minute:
                     return
-            channel_id = info.get("channel_id")
-            channel = self.bot.get_channel(channel_id) if channel_id else None
+            channel = self._get_reminder_channel(info)
             if channel:
                 render_text = self._render_message(info["message"])
                 embed = None
@@ -398,6 +397,14 @@ class Reminder(commands.Cog):
         """Convert escaped newline sequences to actual newlines for output."""
 
         return message.replace("\\n", "\n")
+
+    def _get_reminder_channel(self, info: dict) -> discord.abc.Messageable | None:
+        """Resolve the current channel assigned to a reminder entry."""
+
+        channel_id = info.get("channel_id")
+        if channel_id is None:
+            return None
+        return self.bot.get_channel(channel_id)
 
     @classmethod
     def _parse_times_argument(cls, value: str) -> list[dict[str, int | None]]:

@@ -1,7 +1,10 @@
+import asyncio
 import datetime
 import importlib.util
 import pathlib
 import unittest
+import tempfile
+from unittest import mock
 
 
 spec = importlib.util.spec_from_file_location(
@@ -98,6 +101,111 @@ class MergeRemoveTimesTest(unittest.TestCase):
         self.assertIsNone(info.get("weekday"))
         self.assertIsNone(info.get("hour"))
         self.assertIsNone(info.get("minute"))
+
+
+class ReminderChannelUpdateTest(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self._original_data_dir = reminder.DATA_DIR
+        self._temp_dir = tempfile.TemporaryDirectory()
+        reminder.DATA_DIR = pathlib.Path(self._temp_dir.name)
+        reminder.DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    async def asyncTearDown(self):
+        reminder.DATA_DIR = self._original_data_dir
+        self._temp_dir.cleanup()
+
+    async def test_loop_uses_updated_channel_id(self):
+        class FakeChannel:
+            def __init__(self, channel_id: int):
+                self.id = channel_id
+                self.sent: list[dict] = []
+                self.mention = f"<#{channel_id}>"
+                self.name = f"channel-{channel_id}"
+
+            async def send(self, **kwargs):
+                self.sent.append(kwargs)
+
+        class FakeAsyncLoop:
+            def __init__(self):
+                self.tasks: list[asyncio.Task] = []
+
+            def create_task(self, coro):
+                task = asyncio.create_task(coro)
+                self.tasks.append(task)
+                return task
+
+            def call_soon(self, func, *args, **kwargs):
+                func(*args, **kwargs)
+
+        class FakeBot:
+            def __init__(self):
+                self.loop = FakeAsyncLoop()
+                self.channels: dict[int, FakeChannel] = {}
+
+            async def wait_until_ready(self):
+                return
+
+            def get_channel(self, channel_id: int):
+                return self.channels.get(channel_id)
+
+            def get_cog(self, name: str):
+                return None
+
+        class StubLoop:
+            def __init__(self, coro):
+                self.coro = coro
+
+            def start(self):
+                return None
+
+            def stop(self):
+                return None
+
+            def cancel(self):
+                return None
+
+        def stub_tasks_loop(*args, **kwargs):
+            def decorator(coro):
+                return StubLoop(coro)
+
+            return decorator
+
+        fake_bot = FakeBot()
+        original_channel = FakeChannel(101)
+        updated_channel = FakeChannel(202)
+        fake_bot.channels = {
+            original_channel.id: original_channel,
+            updated_channel.id: updated_channel,
+        }
+
+        with mock.patch.object(reminder.tasks, "loop", new=stub_tasks_loop):
+            cog = Reminder(fake_bot)
+            cog.reminders.clear()
+            cog.guild_settings.clear()
+            cog.create_reminder(
+                guild_id=1,
+                name="demo",
+                interval=1,
+                unit="minutes",
+                channel_id=original_channel.id,
+                message="hello",
+            )
+            await asyncio.gather(*fake_bot.loop.tasks, return_exceptions=True)
+
+            info = cog.reminders[1]["demo"]
+            info["channel_id"] = updated_channel.id
+            info["last"] = 0.0
+
+            original_gmtime = reminder.time.gmtime
+
+            with mock.patch.object(reminder.time, "time", return_value=120), mock.patch.object(
+                reminder.time, "gmtime", side_effect=lambda ts=None: original_gmtime(120)
+            ):
+                await info["task"].coro()
+
+        self.assertEqual(original_channel.sent, [])
+        self.assertEqual(len(updated_channel.sent), 1)
+        self.assertEqual(updated_channel.sent[0].get("content"), "hello")
 
 
 if __name__ == '__main__':

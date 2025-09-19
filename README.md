@@ -133,20 +133,25 @@ Use `/reminder` commands to schedule repeating messages.
 **Syntax**
 
 ```
-/reminder add name:<id> channel:<#channel> message:<text> [headline:<title>] [interval:<number> unit:<minutes|hours|days>] [weekday:<day>] [time:<HH:MM>] [once:true]
+/reminder add name:<id> channel:<#channel> message:<text> [headline:<title>] [interval:<number> unit:<minutes|hours|days>] [weekday:<day>] [time:<HH:MM>] [times:<Mon@HH:MM,...>] [group:<label>] [once:true]
 ```
 
 **Examples**
 
 - `/reminder add name:backup channel:#general message:"Run backup" time:02:00`
-- `/reminder add name:standup channel:#dev message:"Daily standup" interval:1 unit:days time:09:00`
+- `/reminder add name:standup channel:#dev message:"Daily standup" times:"09:00"`
+- `/reminder add name:shopping channel:#ops message:"Buy ingredients" times:"Mon@07:00, Tue@17:30" group:Meal`
 - `/reminder add name:colony channel:#ops message:"Territory Development\\n-Building Power\\n-Fortification Power" headline:"Colony Action" interval:1 unit:days`
 - `/reminder add name:launch channel:#ops message:"Launch prep" time:13:00 once:true`
+- `/reminder edit name:shopping add_times:"Wed@12:00"`
+- `/reminder edit name:shopping remove_times:"Mon@07:00" clear_group:true`
+- `/reminder group rename name:Meal new_name:"Weekend Meal"`
+- `/reminder group remove name:"Weekend Meal"`
 - `/reminder remove name:backup`
 - `/reminder list`
 - `/reminder toggle enabled:false`
 
-Reminders persist across bot restarts and are stored per guild in `./data/reminder/<guild_id>.json`. When a time is provided, reminders fire on the minute (UTC). Setting only a `time` schedules a daily reminder, and enabling `once:true` creates a one-time reminder that clears itself after firing. Provide an optional `headline` to send the reminder inside an embed, and include `\n` in the message text to create multi-line reminders.
+Reminders persist across bot restarts and are stored per guild in `./data/reminder/<guild_id>.json`. Provide either an interval *or* one or more explicit times. Use `time:<HH:MM>` for a single daily or weekly time (optionally add `weekday:<day>`), or `times:"Mon@07:00, Tue@17:30"` to schedule several occurrences in one reminder. Times are interpreted in UTC and fire on the minute. Enabling `once:true` creates a one-time reminder that clears itself after firing. Provide an optional `headline` to send the reminder inside an embed, and include `\n` in the message text to create multi-line reminders. Reminders can also be grouped with `group:<label>`; `/reminder list` shows reminders grouped by this label. Use `/reminder edit` to adjust messages, channels, groups, and schedules (including adding or removing specific times) without recreating the reminder. Manage group labels with `/reminder group rename` and `/reminder group remove`.
 
 Use `/reminder toggle enabled:false` to pause reminder delivery for the entire server while keeping the schedules saved. Re-enable deliveries with `/reminder toggle enabled:true`.
 

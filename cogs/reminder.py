@@ -416,6 +416,22 @@ class Reminder(commands.Cog):
             entries.append(cls._parse_single_time(token))
         if not entries:
             raise ValueError("No valid times provided.")
+        missing_weekday_indices: list[int] = []
+        explicit_weekdays: set[int] = set()
+        for index, entry in enumerate(entries):
+            weekday = entry.get("weekday")
+            if weekday is None:
+                missing_weekday_indices.append(index)
+            else:
+                explicit_weekdays.add(int(weekday))
+        if missing_weekday_indices and explicit_weekdays:
+            if len(explicit_weekdays) > 1:
+                raise ValueError(
+                    "When using a shared weekday, all times must use the same weekday."
+                )
+            shared_weekday = next(iter(explicit_weekdays))
+            for index in missing_weekday_indices:
+                entries[index]["weekday"] = shared_weekday
         return entries
 
     @classmethod

@@ -62,6 +62,15 @@ class ParseTimesArgumentTest(unittest.TestCase):
         entries = Reminder._parse_times_argument("09:15")
         self.assertEqual(entries, [{"weekday": None, "hour": 9, "minute": 15}])
 
+    def test_parse_shared_weekday(self):
+        entries = Reminder._parse_times_argument("Mon@09:00, 10:30")
+        self.assertEqual(entries[0], {"weekday": 0, "hour": 9, "minute": 0})
+        self.assertEqual(entries[1], {"weekday": 0, "hour": 10, "minute": 30})
+
+    def test_parse_conflicting_shared_weekday(self):
+        with self.assertRaises(ValueError):
+            Reminder._parse_times_argument("Mon@09:00, Tue@10:30, 11:45")
+
     def test_invalid_entry(self):
         with self.assertRaises(ValueError):
             Reminder._parse_times_argument("notatime")

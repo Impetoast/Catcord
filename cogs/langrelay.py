@@ -866,7 +866,7 @@ class LangRelay(commands.Cog):
         targets = None
         if provider == "deepl" and DEEPL_TOKEN:
             try:
-                targets = await _deepl_targets()
+                targets = await _deepl_targets(self._deepl_lang_client)
             except Exception:
                 targets = None
         items = suggest_codes(current, targets)

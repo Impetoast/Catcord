@@ -105,7 +105,7 @@ class LangRelay(commands.Cog):
         if not DEEPL_TOKEN and not OPENAI_TOKEN:
             print("⚠️  Weder DEEPL_TOKEN noch OPENAI_TOKEN gesetzt – Übersetzung nicht möglich, bis einer vorhanden ist.")
         self.guild_config: Dict[int, Dict[str, Any]] = {}
-        self._guild_channel_cache: Dict[int, Dict[str, discord.TextChannel]] = {}
+        self._guild_channel_cache: Dict[int, Dict[int, discord.TextChannel]] = {}
         self._sem_per_guild: Dict[int, asyncio.Semaphore] = {}
         self._webhook_cache: Dict[int, Dict[int, discord.Webhook]] = {}
         self._relay_map: Dict[int, Dict[int, int]] = {}
@@ -116,7 +116,7 @@ class LangRelay(commands.Cog):
     def _guild_path(self, guild_id: int) -> Path:
         return DATA_DIR / f"{guild_id}.json"
 
-    def _ensure_blocks(self, cfg: Dict[str, Any]):
+    def _ensure_blocks(self, cfg: Dict[str, Any], guild: Optional[discord.Guild] = None):
         # options
         opt = cfg.get("options") or {}
         cfg["options"] = {
@@ -150,13 +150,34 @@ class LangRelay(commands.Cog):
                 gopt[gname] = bool(val)
                 groups.pop(gname, None)
 
-        # sanitize groups in-place
-        new_groups = {
-            str(g): {str(ch): str(code) for ch, code in channels.items()}
-            for g, channels in groups.items() if isinstance(channels, dict)
-        }
-        groups.clear()
-        groups.update(new_groups)
+        channel_lookup: Dict[str, int] = {}
+        if guild is not None:
+            channel_lookup = {ch.name: ch.id for ch in getattr(guild, "text_channels", [])}
+
+        sanitized_groups: Dict[str, Dict[str, str]] = {}
+        for g, channels in groups.items():
+            if not isinstance(channels, dict):
+                continue
+            g_name = str(g)
+            sanitized_channels: Dict[str, str] = {}
+            for raw_key, raw_code in channels.items():
+                if raw_code is None:
+                    continue
+                code = str(raw_code)
+                key = str(raw_key)
+                if key.isdigit():
+                    sanitized_channels[key] = code
+                    continue
+                chan_id = channel_lookup.get(key)
+                if chan_id is not None:
+                    sanitized_channels[str(chan_id)] = code
+                else:
+                    sanitized_channels[key] = code
+            if sanitized_channels:
+                sanitized_groups[g_name] = sanitized_channels
+        if sanitized_groups != groups:
+            cfg["groups"] = sanitized_groups
+            groups = sanitized_groups
 
         # group options
         new_opts = {str(g): bool(v) for g, v in gopt.items()}
@@ -174,7 +195,7 @@ class LangRelay(commands.Cog):
                 data = json.loads(p.read_text(encoding="utf-8"))
             except Exception as e:
                 print(f"⚠️ Konnte Konfiguration für {guild.name} nicht laden: {e} → verwende Defaults")
-        self._ensure_blocks(data)
+        self._ensure_blocks(data, guild)
         self.guild_config[guild.id] = {
             "provider": data.get("provider", DEFAULT_PROVIDER),
             "options": data.get("options", {"enabled": True, "replymode": False, "thread_mirroring": False, "reaction_mirroring": False}),
@@ -190,7 +211,7 @@ class LangRelay(commands.Cog):
             "groups": {},
             "group_options": {},
         })
-        self._ensure_blocks(cfg)
+        self._ensure_blocks(cfg, self.bot.get_guild(guild_id))
         try:
             self._guild_path(guild_id).write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
         except Exception as e:
@@ -212,7 +233,7 @@ class LangRelay(commands.Cog):
             "groups": {},
             "group_options": {},
         })
-        self._ensure_blocks(cfg)
+        self._ensure_blocks(cfg, self.bot.get_guild(guild_id))
         return cfg["groups"]
 
     def _provider(self, guild_id: int) -> str:
@@ -234,7 +255,7 @@ class LangRelay(commands.Cog):
             "groups": {},
             "group_options": {},
         })
-        self._ensure_blocks(cfg)
+        self._ensure_blocks(cfg, self.bot.get_guild(guild_id))
         return cfg["options"]
 
     def _group_options(self, guild_id: int) -> Dict[str, bool]:
@@ -244,7 +265,7 @@ class LangRelay(commands.Cog):
             "groups": {},
             "group_options": {},
         })
-        self._ensure_blocks(cfg)
+        self._ensure_blocks(cfg, self.bot.get_guild(guild_id))
         return cfg["group_options"]
 
     # Helper: normalize language codes like "en_gb" -> "EN-GB"
@@ -265,12 +286,30 @@ class LangRelay(commands.Cog):
         return lock
 
     async def _ensure_cache(self, guild: discord.Guild):
-        self._guild_channel_cache[guild.id] = {ch.name: ch for ch in guild.text_channels}
+        self._guild_channel_cache[guild.id] = {ch.id: ch for ch in guild.text_channels}
         if guild.id not in self.guild_config:
             self._load_guild(guild)
 
-    def _get_channel_by_name(self, guild_id: int, name: str) -> Optional[discord.TextChannel]:
-        return (self._guild_channel_cache.get(guild_id) or {}).get(name)
+    def _get_channel(self, guild_id: int, channel_id: int) -> Optional[discord.TextChannel]:
+        cache = self._guild_channel_cache.get(guild_id) or {}
+        channel = cache.get(channel_id)
+        if channel is not None:
+            return channel
+        guild = self.bot.get_guild(guild_id)
+        if guild is not None:
+            chan = guild.get_channel(channel_id)
+            if isinstance(chan, discord.TextChannel):
+                cache[channel_id] = chan
+                self._guild_channel_cache[guild_id] = cache
+                return chan
+        return None
+
+    def _channel_display(self, guild: discord.Guild, key: str) -> str:
+        if key.isdigit():
+            channel = self._get_channel(guild.id, int(key))
+            return channel.mention if channel else f"<#{key}>"
+        channel = next((c for c in guild.text_channels if c.name == key), None)
+        return channel.mention if channel else f"#{key}"
 
     # -------------------- Mentions: klickbar ohne Ping --------------------
     async def _resolve_mentions(self, message: discord.Message) -> str:
@@ -559,9 +598,11 @@ class LangRelay(commands.Cog):
             src_channel = message.channel
 
         # Alle Gruppen finden, in denen der Quellkanal Mitglied ist
+        src_key = str(src_channel.id)
         src_groups: List[str] = [
-            gname for gname, chans in groups.items()
-            if src_channel.name in chans and gopts.get(gname, True)
+            gname
+            for gname, chans in groups.items()
+            if gopts.get(gname, True) and (src_key in chans or src_channel.name in chans)
         ]
         if not src_groups:
             return  # kein Relay-Channel
@@ -582,11 +623,19 @@ class LangRelay(commands.Cog):
                 links: List[Tuple[int, int]] = [(message.channel.id, message.id)]
                 for gname in src_groups:
                     chans = groups.get(gname, {})
-                    src_lang = chans.get(src_channel.name)
-                    for tgt_name, tgt_lang in chans.items():
-                        if tgt_name == src_channel.name:
+                    src_lang = chans.get(src_key, chans.get(src_channel.name))
+                    for tgt_key, tgt_lang in chans.items():
+                        tgt_key_str = str(tgt_key)
+                        if tgt_key_str == src_key or tgt_key_str == src_channel.name:
                             continue
-                        tgt_channel = self._get_channel_by_name(guild.id, tgt_name)
+                        tgt_channel: Optional[discord.TextChannel] = None
+                        if tgt_key_str.isdigit():
+                            tgt_channel = self._get_channel(guild.id, int(tgt_key_str))
+                        if tgt_channel is None:
+                            for candidate in guild.text_channels:
+                                if candidate.name == tgt_key_str:
+                                    tgt_channel = candidate
+                                    break
                         if not tgt_channel or tgt_channel.id in sent_to:
                             continue
                         sent_to.add(tgt_channel.id)
@@ -744,9 +793,9 @@ class LangRelay(commands.Cog):
             for gname, chans in groups.items():
                 state = "on" if gopts.get(gname, True) else "off"
                 lines.append(f"• **{gname}** (`{state}`):")
-                for ch_name, code in chans.items():
-                    ch_obj = self._get_channel_by_name(interaction.guild.id, ch_name)
-                    lines.append(f"  - {(f'<#{ch_obj.id}>' if ch_obj else f'#{ch_name}') } → `{code}`")
+                for ch_key, code in chans.items():
+                    mention = self._channel_display(interaction.guild, str(ch_key))
+                    lines.append(f"  - {mention} → `{code}`")
                 lines.append("")
         lines.append("**Optionen:**")
         lines.append(f"• power: `{'on' if opts.get('enabled', True) else 'off'}`")
@@ -833,8 +882,8 @@ class LangRelay(commands.Cog):
             groups[group] = {}
         gopts.setdefault(group, True)
 
-        # speichere wie gehabt (Name oder ID – je nach deinem aktuellen Modell)
-        groups[group][channel.name] = lang
+        # speichere nach Channel-ID
+        groups[group][str(channel.id)] = lang
         self._save_guild(interaction.guild.id)
 
         await interaction.response.send_message(
@@ -871,10 +920,21 @@ class LangRelay(commands.Cog):
 
         groups = self._groups(interaction.guild.id)
         gopts = self._group_options(interaction.guild.id)
-        if group not in groups or channel.name not in groups[group]:
+        if group not in groups:
             return await interaction.response.send_message("ℹ️ Eintrag nicht gefunden.", ephemeral=True)
 
-        groups[group].pop(channel.name, None)
+        removed = False
+        chan_key = str(channel.id)
+        if chan_key in groups[group]:
+            groups[group].pop(chan_key, None)
+            removed = True
+        elif channel.name in groups[group]:
+            groups[group].pop(channel.name, None)
+            removed = True
+
+        if not removed:
+            return await interaction.response.send_message("ℹ️ Eintrag nicht gefunden.", ephemeral=True)
+
         if not groups[group]:
             groups.pop(group, None)
             gopts.pop(group, None)
@@ -900,9 +960,9 @@ class LangRelay(commands.Cog):
         for gname, chans in groups.items():
             state = "on" if gopts.get(gname, True) else "off"
             lines.append(f"**{gname}** (`{state}`)")
-            for ch, code in chans.items():
-                ch_obj = self._get_channel_by_name(interaction.guild.id, ch)
-                lines.append(f"• {(ch_obj.mention if ch_obj else '#'+ch)} → `{code}`")
+            for ch_key, code in chans.items():
+                mention = self._channel_display(interaction.guild, str(ch_key))
+                lines.append(f"• {mention} → `{code}`")
             lines.append("")
         await interaction.response.send_message("\n".join(lines), ephemeral=True)
 

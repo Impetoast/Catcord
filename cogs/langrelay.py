@@ -41,7 +41,7 @@ WEBHOOK_CACHE_SIZE = 64
 # === Sprachlisten-Cache für DeepL (Targets) ===
 _DEEPL_LANG_CACHE = {"ts": 0.0, "targets": set()}
 
-async def _deepl_targets() -> Set[str]:
+async def _deepl_targets(client: httpx.AsyncClient) -> Set[str]:
     """Gültige DeepL-Target-Sprachen laden (1×/Stunde cachen)."""
     now = time.time()
     if _DEEPL_LANG_CACHE["targets"] and now - _DEEPL_LANG_CACHE["ts"] < 3600:
@@ -52,8 +52,7 @@ async def _deepl_targets() -> Set[str]:
 
     url = f"{DEEPL_API_URL}/languages"
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=5.0)) as client:
-            resp = await client.get(url, params={"type": "target", "auth_key": DEEPL_TOKEN})
+        resp = await client.get(url, params={"type": "target", "auth_key": DEEPL_TOKEN})
         resp.raise_for_status()
         data = resp.json() or []
         targets = {(item.get("language") or "").upper() for item in data if item.get("language")}
@@ -111,6 +110,20 @@ class LangRelay(commands.Cog):
         self._relay_map: Dict[int, Dict[int, int]] = {}
         self._relay_lookup: Dict[int, int] = {}
         self._channel_locks: Dict[int, asyncio.Lock] = {}
+        self._deepl_client = httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=10.0))
+        self._deepl_lang_client = httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=5.0))
+        self._openai_client = httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0))
+
+    def cog_unload(self):
+        loop = getattr(self.bot, "loop", None)
+        for client in (getattr(self, "_deepl_client", None),
+                       getattr(self, "_deepl_lang_client", None),
+                       getattr(self, "_openai_client", None)):
+            if client and not client.is_closed:
+                if loop:
+                    loop.create_task(client.aclose())
+                else:
+                    asyncio.create_task(client.aclose())
 
     # -------------------- Persistence --------------------
     def _guild_path(self, guild_id: int) -> Path:
@@ -342,7 +355,7 @@ class LangRelay(commands.Cog):
         tgt = normalize_code(target_lang)
         src = normalize_code(source_lang)
 
-        targets = await _deepl_targets()
+        targets = await _deepl_targets(self._deepl_lang_client)
         if targets:
             tgt = alias_for_provider(tgt or "", targets)
             if tgt not in targets:
@@ -355,8 +368,7 @@ class LangRelay(commands.Cog):
         if src:
             data["source_lang"] = src
 
-        async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=10.0)) as client:
-            resp = await client.post(TRANSLATE_URL, data=data)
+        resp = await self._deepl_client.post(TRANSLATE_URL, data=data)
         if resp.status_code == 400:
             raise RuntimeError(f"DeepL lehnt den Zielcode ab (`{tgt}`).")
         if resp.status_code == 429:
@@ -388,8 +400,9 @@ class LangRelay(commands.Cog):
             "temperature": 0.2,
         }
 
-        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
-            resp = await client.post(f"{OPENAI_API_URL}/chat/completions", headers=headers, json=body)
+        resp = await self._openai_client.post(
+            f"{OPENAI_API_URL}/chat/completions", headers=headers, json=body
+        )
         if resp.status_code >= 400:
             raise RuntimeError(f"OpenAI-Fehler ({resp.status_code}): {resp.text}")
         data = resp.json()

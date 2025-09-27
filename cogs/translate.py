@@ -1,4 +1,5 @@
 # cogs/translate.py
+import asyncio
 import os
 from typing import Optional, Dict, List, Tuple
 from textwrap import wrap
@@ -43,19 +44,24 @@ class Translate(commands.Cog):
         self.target_langs: List[Tuple[str, str]] = FALLBACK_LANGS[:]
         self.source_langs: List[Tuple[str, str]] = []
         self.CODE_TO_LABEL: Dict[str, str] = {c: l for c, l in self.target_langs}
-        self.bot.loop.create_task(self._load_languages_bg())
+        self._http_client = httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=10.0))
+        self._language_task: Optional[asyncio.Task] = None
+        if hasattr(self.bot, "loop"):
+            self._language_task = self.bot.loop.create_task(self._load_languages_bg())
 
     # ------------------ Language Loading ------------------
     async def _load_languages_bg(self):
         if not DEEPL_TOKEN:
             return
         try:
-            timeout = httpx.Timeout(15.0, connect=10.0)
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                r_t = await client.get(LANG_URL, params={"auth_key": DEEPL_TOKEN, "type": "target"})
-                r_t.raise_for_status()
-                r_s = await client.get(LANG_URL, params={"auth_key": DEEPL_TOKEN, "type": "source"})
-                r_s.raise_for_status()
+            r_t = await self._http_client.get(
+                LANG_URL, params={"auth_key": DEEPL_TOKEN, "type": "target"}
+            )
+            r_t.raise_for_status()
+            r_s = await self._http_client.get(
+                LANG_URL, params={"auth_key": DEEPL_TOKEN, "type": "source"}
+            )
+            r_s.raise_for_status()
 
             def to_list(items):
                 out: List[Tuple[str, str]] = []
@@ -76,6 +82,8 @@ class Translate(commands.Cog):
             self.source_langs = sorted({c: l for c, l in slist}.items())
             self.CODE_TO_LABEL = {c: l for c, l in self.target_langs + self.source_langs}
             print(f"🗺️  DeepL-Sprachen geladen: {len(self.source_langs)} source, {len(self.target_langs)} target")
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             print(f"⚠️  Konnte DeepL-Sprachen nicht laden, nutze Fallback: {e}")
 
@@ -83,18 +91,39 @@ class Translate(commands.Cog):
     async def _deepl_request(self, data: dict) -> dict:
         if not DEEPL_TOKEN:
             raise RuntimeError("DEEPL_TOKEN fehlt (in .env setzen).")
-        timeout = httpx.Timeout(20.0, connect=10.0)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(TRANSLATE_URL, data=data)
-            if resp.status_code == 429:
-                raise RuntimeError("DeepL: Rate limit erreicht.")
-            if resp.status_code >= 400:
+        resp = await self._http_client.post(TRANSLATE_URL, data=data)
+        if resp.status_code == 429:
+            raise RuntimeError("DeepL: Rate limit erreicht.")
+        if resp.status_code >= 400:
+            try:
+                detail = resp.json()
+            except Exception:
+                detail = resp.text
+            raise RuntimeError(f"DeepL-Fehler ({resp.status_code}): {detail}")
+        return resp.json()
+
+    def cog_unload(self):
+        loop = getattr(self.bot, "loop", None)
+        if self._language_task and not self._language_task.done():
+            self._language_task.cancel()
+
+            async def _await_cancellation(task: asyncio.Task):
                 try:
-                    detail = resp.json()
+                    await task
+                except asyncio.CancelledError:
+                    pass
                 except Exception:
-                    detail = resp.text
-                raise RuntimeError(f"DeepL-Fehler ({resp.status_code}): {detail}")
-            return resp.json()
+                    pass
+
+            if loop:
+                loop.create_task(_await_cancellation(self._language_task))
+            else:
+                asyncio.create_task(_await_cancellation(self._language_task))
+        if getattr(self, "_http_client", None) and not self._http_client.is_closed:
+            if loop:
+                loop.create_task(self._http_client.aclose())
+            else:
+                asyncio.create_task(self._http_client.aclose())
 
     # ------------------ Core: Translate ------------------
     async def deepl_translate(

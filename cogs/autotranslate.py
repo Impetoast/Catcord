@@ -33,6 +33,7 @@ class AutoTranslate(commands.Cog):
         self.last_action_ts: Dict[int, float] = {}
         self.cooldown_seconds = 0.5
         self._sem_per_channel: Dict[int, asyncio.Semaphore] = {}
+        self._deepl_client = httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=10.0))
 
     async def _deepl_translate(self, text: str, target: str, source: Optional[str], formality: Optional[str]) -> Tuple[str, Optional[str]]:
         if not DEEPL_TOKEN:
@@ -48,24 +49,31 @@ class AutoTranslate(commands.Cog):
         if formality and formality.lower() in {"default","less","more"}:
             data["formality"] = formality.lower()
 
-        timeout = httpx.Timeout(15.0, connect=10.0)
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(TRANSLATE_URL, data=data)
-            if resp.status_code == 429:
-                raise RuntimeError("DeepL: Rate limit erreicht.")
-            if resp.status_code >= 400:
-                try:
-                    detail = resp.json()
-                except Exception:
-                    detail = resp.text
-                raise RuntimeError(f"DeepL-Fehler ({resp.status_code}): {detail}")
+        resp = await self._deepl_client.post(TRANSLATE_URL, data=data)
+        if resp.status_code == 429:
+            raise RuntimeError("DeepL: Rate limit erreicht.")
+        if resp.status_code >= 400:
+            try:
+                detail = resp.json()
+            except Exception:
+                detail = resp.text
+            raise RuntimeError(f"DeepL-Fehler ({resp.status_code}): {detail}")
 
-            payload = resp.json()
-            tr = (payload.get("translations") or [])
-            if not tr:
-                raise RuntimeError("DeepL: Keine Übersetzung erhalten.")
-            out = tr[0]
-            return out.get("text","").strip(), _norm(out.get("detected_source_language"))
+        payload = resp.json()
+        tr = (payload.get("translations") or [])
+        if not tr:
+            raise RuntimeError("DeepL: Keine Übersetzung erhalten.")
+        out = tr[0]
+        return out.get("text","").strip(), _norm(out.get("detected_source_language"))
+
+    def cog_unload(self):
+        client = getattr(self, "_deepl_client", None)
+        if client and not client.is_closed:
+            loop = getattr(self.bot, "loop", None)
+            if loop:
+                loop.create_task(client.aclose())
+            else:
+                asyncio.create_task(client.aclose())
 
     def _get_sem(self, channel_id: int) -> asyncio.Semaphore:
         sem = self._sem_per_channel.get(channel_id)

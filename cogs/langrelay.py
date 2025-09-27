@@ -264,10 +264,14 @@ class LangRelay(commands.Cog):
             self._channel_locks[channel_id] = lock
         return lock
 
-    async def _ensure_cache(self, guild: discord.Guild):
-        self._guild_channel_cache[guild.id] = {ch.name: ch for ch in guild.text_channels}
+    def _ensure_config_loaded(self, guild: discord.Guild):
         if guild.id not in self.guild_config:
             self._load_guild(guild)
+
+    async def _ensure_cache(self, guild: discord.Guild, *, refresh: bool = False):
+        if refresh or guild.id not in self._guild_channel_cache:
+            self._guild_channel_cache[guild.id] = {ch.name: ch for ch in guild.text_channels}
+        self._ensure_config_loaded(guild)
 
     def _get_channel_by_name(self, guild_id: int, name: str) -> Optional[discord.TextChannel]:
         return (self._guild_channel_cache.get(guild_id) or {}).get(name)
@@ -507,21 +511,21 @@ class LangRelay(commands.Cog):
     @commands.Cog.listener()
     async def on_ready(self):
         for guild in self.bot.guilds:
-            await self._ensure_cache(guild)
+            await self._ensure_cache(guild, refresh=True)
 
     @commands.Cog.listener()
     async def on_guild_join(self, guild: discord.Guild):
-        await self._ensure_cache(guild)
+        await self._ensure_cache(guild, refresh=True)
 
     @commands.Cog.listener()
     async def on_guild_channel_create(self, channel: discord.abc.GuildChannel):
         if isinstance(channel, discord.TextChannel):
-            await self._ensure_cache(channel.guild)
+            await self._ensure_cache(channel.guild, refresh=True)
 
     @commands.Cog.listener()
     async def on_guild_channel_update(self, before: discord.abc.GuildChannel, after: discord.abc.GuildChannel):
         if isinstance(after, discord.TextChannel):
-            await self._ensure_cache(after.guild)
+            await self._ensure_cache(after.guild, refresh=True)
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -536,7 +540,7 @@ class LangRelay(commands.Cog):
             return
 
         guild = message.guild
-        await self._ensure_cache(guild)
+        self._ensure_config_loaded(guild)
         groups = self._groups(guild.id)
         gopts = self._group_options(guild.id)
         opts = self._options(guild.id)
@@ -731,7 +735,7 @@ class LangRelay(commands.Cog):
     async def cmd_status(self, interaction: discord.Interaction):
         if not interaction.guild:
             return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
-        await self._ensure_cache(interaction.guild)
+        self._ensure_config_loaded(interaction.guild)
         provider = self._provider(interaction.guild.id)
         opts = self._options(interaction.guild.id)
         groups = self._groups(interaction.guild.id)
@@ -763,6 +767,7 @@ class LangRelay(commands.Cog):
     async def cmd_group_power(self, interaction: discord.Interaction, group: str, state: app_commands.Choice[str]):
         if not interaction.guild:
             return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
+        self._ensure_config_loaded(interaction.guild)
         groups = self._groups(interaction.guild.id)
         if group not in groups:
             return await interaction.response.send_message(f"ℹ️ Gruppe **{group}** nicht gefunden.", ephemeral=True)
@@ -777,6 +782,7 @@ class LangRelay(commands.Cog):
     async def ac_group_power(self, interaction: discord.Interaction, current: str):
         if not interaction.guild:
             return []
+        self._ensure_config_loaded(interaction.guild)
         return self._group_choice_list(interaction.guild, current)
 
     # ---- Gruppen-Management ----
@@ -786,6 +792,7 @@ class LangRelay(commands.Cog):
         if not interaction.guild:
             return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
         name = name.strip()
+        self._ensure_config_loaded(interaction.guild)
         groups = self._groups(interaction.guild.id)
         gopts = self._group_options(interaction.guild.id)
         if name in groups:
@@ -801,6 +808,7 @@ class LangRelay(commands.Cog):
         if not interaction.guild:
             return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
 
+        self._ensure_config_loaded(interaction.guild)
         groups = self._groups(interaction.guild.id)
         gopts = self._group_options(interaction.guild.id)
         if group not in groups:
@@ -815,6 +823,7 @@ class LangRelay(commands.Cog):
     async def ac_group_delete(self, interaction: discord.Interaction, current: str):
         if not interaction.guild:
             return []
+        self._ensure_config_loaded(interaction.guild)
         return self._group_choice_list(interaction.guild, current)
     @app_commands.command(name="langrelay_group_add", description="Fügt Channel+Sprachcode zu einer Gruppe hinzu.")
     @app_commands.describe(group="Gruppenname", channel="Textkanal", language="DeepL Sprachcode, z. B. DE, EN, EN-GB …")
@@ -827,6 +836,7 @@ class LangRelay(commands.Cog):
         lang = (language or "").strip().upper().replace("_", "-")
         # keine SUPPORTED_TARGETS-Prüfung → akzeptiert z. B. EN-AU, EN-IN etc.
 
+        self._ensure_config_loaded(interaction.guild)
         groups = self._groups(interaction.guild.id)
         gopts = self._group_options(interaction.guild.id)
         if group not in groups:
@@ -844,11 +854,14 @@ class LangRelay(commands.Cog):
     async def ac_group_add(self, interaction: discord.Interaction, current: str):
         if not interaction.guild:
             return []
+        self._ensure_config_loaded(interaction.guild)
         return self._group_choice_list(interaction.guild, current)
 
     @cmd_group_add.autocomplete("language")
     async def ac_group_lang(self, interaction: discord.Interaction, current: str):
         # schicke die gleichen Vorschläge wie bei /set, nur ohne /set zu brauchen
+        if interaction.guild:
+            self._ensure_config_loaded(interaction.guild)
         provider = self._provider(interaction.guild.id) if interaction.guild else "deepl"
         targets = None
         if provider == "deepl" and DEEPL_TOKEN:
@@ -869,6 +882,7 @@ class LangRelay(commands.Cog):
         if not interaction.guild:
             return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
 
+        self._ensure_config_loaded(interaction.guild)
         groups = self._groups(interaction.guild.id)
         gopts = self._group_options(interaction.guild.id)
         if group not in groups or channel.name not in groups[group]:
@@ -886,12 +900,14 @@ class LangRelay(commands.Cog):
     async def ac_group_remove(self, interaction: discord.Interaction, current: str):
         if not interaction.guild:
             return []
+        self._ensure_config_loaded(interaction.guild)
         return self._group_choice_list(interaction.guild, current)
     @app_commands.command(name="langrelay_group_list", description="Listet alle Gruppen und Zuordnungen.")
     @admins_only()
     async def cmd_group_list(self, interaction: discord.Interaction):
         if not interaction.guild:
             return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
+        self._ensure_config_loaded(interaction.guild)
         groups = self._groups(interaction.guild.id)
         gopts = self._group_options(interaction.guild.id)
         if not groups:
@@ -914,6 +930,7 @@ class LangRelay(commands.Cog):
     async def cmd_power(self, interaction: discord.Interaction, state: app_commands.Choice[str]):
         if not interaction.guild:
             return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
+        self._ensure_config_loaded(interaction.guild)
         opts = self._options(interaction.guild.id)
         opts["enabled"] = (state.value == "on")
         self._save_guild(interaction.guild.id)
@@ -930,6 +947,7 @@ class LangRelay(commands.Cog):
     async def cmd_provider(self, interaction: discord.Interaction, provider: app_commands.Choice[str]):
         if not interaction.guild:
             return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
+        self._ensure_config_loaded(interaction.guild)
         choice = provider.value
         if choice == "deepl" and not DEEPL_TOKEN:
             return await interaction.response.send_message("❌ DeepL ist nicht konfiguriert (DEEPL_TOKEN fehlt).", ephemeral=True)
@@ -944,6 +962,7 @@ class LangRelay(commands.Cog):
     async def cmd_replymode(self, interaction: discord.Interaction, state: app_commands.Choice[str]):
         if not interaction.guild:
             return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
+        self._ensure_config_loaded(interaction.guild)
         self._options(interaction.guild.id)["replymode"] = (state.value == "on")
         self._save_guild(interaction.guild.id)
         await interaction.response.send_message(f"✅ replymode: `{state.value}`", ephemeral=True)
@@ -954,6 +973,7 @@ class LangRelay(commands.Cog):
     async def cmd_thread_mirroring(self, interaction: discord.Interaction, state: app_commands.Choice[str]):
         if not interaction.guild:
             return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
+        self._ensure_config_loaded(interaction.guild)
         self._options(interaction.guild.id)["thread_mirroring"] = (state.value == "on")
         self._save_guild(interaction.guild.id)
         await interaction.response.send_message(f"✅ thread_mirroring: `{state.value}`", ephemeral=True)
@@ -964,6 +984,7 @@ class LangRelay(commands.Cog):
     async def cmd_reaction_mirroring(self, interaction: discord.Interaction, state: app_commands.Choice[str]):
         if not interaction.guild:
             return await interaction.response.send_message("❌ Nur in Servern nutzbar.", ephemeral=True)
+        self._ensure_config_loaded(interaction.guild)
         self._options(interaction.guild.id)["reaction_mirroring"] = (state.value == "on")
         self._save_guild(interaction.guild.id)
         await interaction.response.send_message(f"✅ reaction_mirroring: `{state.value}`", ephemeral=True)
